@@ -9,10 +9,11 @@
 --   Kit.checkMethods({ allow = { ["Alpha:SetFromAlpha"] = "why it's real (source)" } })
 --
 -- Each recorded "Type:Method" must be that exact pair in the build's widget
--- methods. The dump lists the animation subtypes (Alpha, Translation, ...)
--- only as Animation: their shared methods are checked as Animation's, their
--- own only through opts.allow, each with its reason. It fails, never skips,
--- when nothing was recorded.
+-- methods. An animation subtype (Alpha, Translation, ...) may call its own
+-- methods (the dump's SimpleAnim<Type>API) or any Animation method. Methods a
+-- Blizzard mixin adds in Lua (MapCanvasMixin's GetMapID...) aren't in the
+-- dump's widget walk: allow each pair, naming the Blizzard file. It fails,
+-- never skips, when nothing was recorded.
 
 local ANIMATIONS = { Alpha = true, Translation = true, Scale = true, Rotation = true, Path = true,
                      LineScale = true, LineTranslation = true, FlipBook = true, VertexColor = true,
@@ -36,11 +37,12 @@ function Kit.checkMethods(opts)
             check(type(allow[name]) == "string" and allow[name] ~= "", "allowed with a reason: " .. name)
         elseif not wtype then
             check(false, "a recorded call reads Type:Method: " .. name)
+        elseif ANIMATIONS[wtype] then
+            -- Its own (from the dump's SimpleAnim<Type>API) or every animation's.
+            check(known[name] or known["Animation:" .. method],
+                "method exists on Forever " .. Kit.BUILD .. ": " .. name .. " (its own or Animation's)")
         elseif types[wtype] then
             check(known[name], "method exists on Forever " .. Kit.BUILD .. ": " .. name)
-        elseif ANIMATIONS[wtype] then
-            check(known["Animation:" .. method],
-                "method exists on Forever " .. Kit.BUILD .. ": " .. name .. " (as Animation's; else allow it)")
         else
             check(false, "widget type exists on Forever " .. Kit.BUILD .. ": " .. name)
         end

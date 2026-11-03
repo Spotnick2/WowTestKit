@@ -227,6 +227,7 @@ local function addRegion(w, r)
     table.insert(w._regions, r)
     return r
 end
+WoW.addRegion = addRegion   -- for a consumer's own region makers (CreateLine)
 function Methods.CreateTexture(w, name, layer, template, sublevel)
     local t = addRegion(w, newWidget("Texture", w, name))
     t._layer, t._sublevel = layer, sublevel
@@ -477,8 +478,12 @@ Kit.CORE_FRAMEXML = { UIParent = "FrameXML UIParent.xml; a widget type of its ow
 -- allowNil: the names that may read as nil (the addon's own globals before
 -- they're assigned, its SavedVariables, LibStub before a library creates it).
 -- Any other read of an undefined global is an error.
+-- It also forgets the method calls the stubs made while being built (a
+-- prebuilt Blizzard frame's SetSize...): Kit.checkMethods then sees only what
+-- the test made the addon call, and "nothing recorded" can fail.
 function Kit.strict(allowNil)
     allowNil = allowNil or {}
+    WoW.methodsCalled = {}
     setmetatable(_G, { __index = function(_, k)
         if allowNil[k] then return nil end
         error("read of undefined global '" .. tostring(k) .. "' (not stubbed: is it in the API dump?)", 2)

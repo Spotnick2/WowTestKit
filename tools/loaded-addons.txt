@@ -1,0 +1,45 @@
+# Addons that may be loaded in the client when /apidump runs (the owner's own,
+# C:\Projects\WoW\<Name>). Their globals named <Name>_... are dropped from the
+# _G walk's lists. Add an addon here when its globals show up in a new dump
+# (tests/test_data.lua lists suspects).
+AltStable
+AltStableSync
+AltStableCompanion
+AltTracker
+Apotheca
+Buffy
+DebuffSpy
+DungeonInfo
+ForeverCombatAssistant
+ForeverProbe
+GlassActionBars
+GlassChat
+GlassGear
+GlassMail
+GlassMiniMap
+GlassNameplates
+GlassPanel
+GlassPearls
+GlassQuestTracker
+GlassRaidFrames
+GlassUI
+GlassUnitFrames
+Gnomesweeper
+GuildSpy
+Magely
+NodeRadar
+ParseBuddy
+PetStable
+PortalRoulette
+Priestly
+PrimalMailer
+Shatter
+Skilled
+Stakeout
+TimeIsMoney
+TitanGearScore
+TitanLayer
+TitanPanelXPP
+TitanProfessions
+Wanderful
+Wildly

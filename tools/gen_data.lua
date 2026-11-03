@@ -28,7 +28,24 @@ local SECTIONS = {
     ["Namespace functions"] = "namespaces",
 }
 
-local sets = { documented = {}, events = {}, widgets = {}, globals = {}, namespaces = {} }
+-- The dump's _G walk ran with addons loaded, so their globals are in it.
+-- Dropped: <Addon>_... for each addon listed in tools/loaded-addons.txt, and
+-- any *_OnAddonCompartment* handler (a TOC's AddonCompartmentFunc, never
+-- Blizzard's).
+local addons = {}
+local here = (arg[0]:match("^(.*)[/\\][^/\\]*$") or ".")
+for l in io.lines(here .. "/loaded-addons.txt") do
+    l = l:gsub("\r$", ""):gsub("%s+$", "")
+    if l ~= "" and not l:match("^#") then addons[#addons + 1] = l end
+end
+local function addonOwned(name)
+    if name:find("_OnAddonCompartment", 1, true) then return true end
+    for _, a in ipairs(addons) do
+        if name:sub(1, #a + 1) == a .. "_" then return true end
+    end
+end
+
+local sets = { documented = {}, events = {}, widgets = {}, globals = {}, namespaces = {}, subtypes = {} }
 local section
 local f = assert(io.open(dump, "r"))
 for line in f:lines() do
@@ -39,10 +56,19 @@ for line in f:lines() do
     elseif line:match("^## ") then
         section = nil
     elseif section == "documented" then
-        -- "Name(args) -> ret  [System]": a trailing [System] is a script
-        -- object's method (a widget's), never callable as a global.
+        -- "Name(args) -> ret  [System]". A Simple*API system is a script
+        -- object's (a widget's): its functions are methods, never globals.
+        -- The animation subtypes' own methods are only here (the widget walk
+        -- lists Animation alone): [SimpleAnimAlphaAPI] SetFromAlpha is
+        -- Alpha:SetFromAlpha.
         local name = line:match("^([%a_][%w_.]*)%(")
-        if name and not line:match("%[[%w_]+%]%s*$") then sets.documented[name] = true end
+        local system = line:match("%[([%w_]+)%]%s*$")
+        if name and system and system:match("^Simple%w*API$") then
+            local sub = system:match("^SimpleAnim(%w+)API$")
+            if sub and sub ~= "Group" and sub ~= "atableObject" then sets.subtypes[sub .. ":" .. name] = true end
+        elseif name then
+            sets.documented[name] = true
+        end
     elseif section == "events" then
         local name = line:match("^([A-Z][A-Z0-9_]+)%s+%(")
         if name then sets.events[name] = true end
@@ -51,7 +77,7 @@ for line in f:lines() do
         if pair then sets.widgets[pair] = true end
     elseif section == "globals" then
         local name = line:match("^([%a_][%w_]*)%s*$")
-        if name then sets.globals[name] = true end
+        if name and not addonOwned(name) then sets.globals[name] = true end
     elseif section == "namespaces" then
         local name = line:match("^([%a_][%w_]*%.[%w_]+)%s*$")
         if name then sets.namespaces[name] = true end
@@ -62,6 +88,8 @@ f:close()
 for k, s in pairs(sets) do
     assert(next(s), "no entries read from the dump's section for " .. k .. ": has its format changed?")
 end
+
+for pair in pairs(sets.subtypes) do sets.widgets[pair] = true end
 
 local functions, globals = {}, {}
 for name in pairs(sets.documented) do functions[name] = true end

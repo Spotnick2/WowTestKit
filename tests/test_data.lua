@@ -29,6 +29,17 @@ for _, build in ipairs(builds) do
                 path .. " names its build and generator")
         end
     end
+    -- No loaded addon's globals; the animation subtypes' own methods are in.
+    local globals = lines("data/forever-" .. build .. "/globals.txt") or {}
+    local suspects = {}
+    for _, g in ipairs(globals) do
+        if g:find("_OnAddonCompartment", 1, true) or g:match("^Glass") then suspects[#suspects + 1] = g end
+    end
+    eq(#suspects, 0, build .. ": no addon globals in globals.txt (add the addon to tools/loaded-addons.txt): "
+        .. table.concat(suspects, " "):sub(1, 200))
+    local methods = table.concat(lines("data/forever-" .. build .. "/widget-methods.txt") or {}, "\n")
+    check(methods:find("\nAlpha:SetFromAlpha\n", 1, true), build .. ": Alpha:SetFromAlpha (SimpleAnimAlphaAPI)")
+    check(methods:find("\nScale:SetScaleFrom\n", 1, true), build .. ": Scale:SetScaleFrom (SimpleAnimScaleAPI)")
     -- Regenerate from the dump when it's here, and compare.
     local dump
     local p = io.popen(package.config:sub(1, 1) == "\\"

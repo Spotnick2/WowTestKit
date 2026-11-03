@@ -30,14 +30,17 @@ for _, c in ipairs({
     { "missing", "method exists on Forever 70532: Frame:NotARealMethod" },
     { "wrongtype", "method exists on Forever 70532: Texture:RegisterEvent" },
     { "unknowntype", "widget type exists on Forever 70532: Gizmo:Show" },
-    { "subtype", "Alpha:SetFromAlpha %(as Animation's; else allow it%)" },
-    { "noreason", "allowed with a reason: Alpha:SetFromAlpha" },
+    { "othersubtype", "Alpha:SetScaleFrom %(its own or Animation's%)" },
+    { "noreason", "allowed with a reason: Frame:GetMapID" },
+    { "stubcalls", "recorded the addon's widget method calls %(0%)" },
 }) do
     local out = run(c[1])
     check(out:find(c[2]), c[1] .. ": fails with " .. c[2] .. "\n" .. out)
     check(out:find("[1-9]%d* failed"), c[1] .. ": the case's file fails")
 end
 local ok = run("allowed")
-check(ok:find("0 failed"), "an allowed subtype method with a reason passes\n" .. ok)
+check(ok:find(" 0 failed"), "a mixin method allowed with a reason passes\n" .. ok)
+local own = run("subtype")
+check(own:find(" 0 failed"), "an animation subtype's own method passes (Alpha:SetFromAlpha)\n" .. own)
 
 done("test_methods")

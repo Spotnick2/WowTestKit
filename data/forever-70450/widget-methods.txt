@@ -1,5 +1,9 @@
 # Type:Method pairs off each widget type's metatable
 # build 70450, from forever-api-1.60.1.70450.md by tools/gen_data.lua (never edit by hand)
+Alpha:GetFromAlpha
+Alpha:GetToAlpha
+Alpha:SetFromAlpha
+Alpha:SetToAlpha
 Animation:AddAccessRestrictions
 Animation:AddForbiddenAspects
 Animation:AddSecretAspect
@@ -2321,6 +2325,16 @@ EditBox:ToggleInputLanguage
 EditBox:UnlockHighlight
 EditBox:UnregisterAllEvents
 EditBox:UnregisterEvent
+FlipBook:GetFlipBookColumns
+FlipBook:GetFlipBookFrameHeight
+FlipBook:GetFlipBookFrameWidth
+FlipBook:GetFlipBookFrames
+FlipBook:GetFlipBookRows
+FlipBook:SetFlipBookColumns
+FlipBook:SetFlipBookFrameHeight
+FlipBook:SetFlipBookFrameWidth
+FlipBook:SetFlipBookFrames
+FlipBook:SetFlipBookRows
 FontString:AddAccessRestrictions
 FontString:AddForbiddenAspects
 FontString:AddSecretAspect
@@ -4798,6 +4812,11 @@ OffScreenFrame:UnlockHighlight
 OffScreenFrame:UnregisterAllEvents
 OffScreenFrame:UnregisterEvent
 OffScreenFrame:UsesNPOT
+Path:CreateControlPoint
+Path:GetControlPoints
+Path:GetCurveType
+Path:GetMaxControlPointOrder
+Path:SetCurveType
 PlayerModel:AbortDrag
 PlayerModel:AddAccessRestrictions
 PlayerModel:AddForbiddenAspects
@@ -5105,6 +5124,24 @@ PlayerModel:UnregisterAllEvents
 PlayerModel:UnregisterEvent
 PlayerModel:UseModelCenterToTransform
 PlayerModel:ZeroCachedCenterXY
+RadialProgress:GetFromPercent
+RadialProgress:GetToPercent
+RadialProgress:SetFromPercent
+RadialProgress:SetToPercent
+Rotation:GetDegrees
+Rotation:GetOrigin
+Rotation:GetRadians
+Rotation:SetDegrees
+Rotation:SetOrigin
+Rotation:SetRadians
+Scale:GetOrigin
+Scale:GetScale
+Scale:GetScaleFrom
+Scale:GetScaleTo
+Scale:SetOrigin
+Scale:SetScale
+Scale:SetScaleFrom
+Scale:SetScaleTo
 ScrollFrame:AbortDrag
 ScrollFrame:AddAccessRestrictions
 ScrollFrame:AddForbiddenAspects
@@ -6864,6 +6901,10 @@ Texture:SetWidth
 Texture:ShouldButtonPassThrough
 Texture:Show
 Texture:StopAnimating
+TextureCoordTranslation:GetOffset
+TextureCoordTranslation:SetOffset
+Translation:GetOffset
+Translation:SetOffset
 UIParent:AbortDrag
 UIParent:AddAccessRestrictions
 UIParent:AddForbiddenAspects
@@ -7312,6 +7353,10 @@ UnitPositionFrame:StopPlayerPing
 UnitPositionFrame:UnlockHighlight
 UnitPositionFrame:UnregisterAllEvents
 UnitPositionFrame:UnregisterEvent
+VertexColor:GetEndColor
+VertexColor:GetStartColor
+VertexColor:SetEndColor
+VertexColor:SetStartColor
 WorldFrame:AbortDrag
 WorldFrame:AddAccessRestrictions
 WorldFrame:AddForbiddenAspects
