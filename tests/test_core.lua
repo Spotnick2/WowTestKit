@@ -36,6 +36,9 @@ WoW.combat = true
 b:Hide()
 check(b:IsShown(), "a protected frame doesn't hide in combat")
 eq(WoW.blocked[1], "Button:Hide", "the refusal is recorded")
+b:SetAllPoints(UIParent)
+eq(#b._points, 0, "nor re-anchors with SetAllPoints")
+eq(WoW.blocked[2], "Button:SetAllPoints", "that refusal is recorded too")
 WoW.combat = false
 b:Hide()
 check(not b:IsShown(), "it hides out of combat")
@@ -72,6 +75,13 @@ WoW.flushTimers(1)
 eq(#WoW.timers, 1, "flushTimers(upTo) keeps later timers")
 WoW.flushTimers()
 eq(order[#order], "d", "flushTimers() runs the rest")
+local fired = 0
+C_Timer.NewTicker(1, function() fired = fired + 1 end):Cancel()
+WoW.advance(2)
+eq(fired, 0, "a ticker cancelled before it falls due never fires under advance")
+C_Timer.NewTicker(1, function() fired = fired + 1 end):Cancel()
+WoW.flushTimers()
+eq(fired, 0, "nor under flushTimers")
 
 -- print and stray pipes.
 print("plain |cffff0000red|r and ||")
@@ -87,6 +97,9 @@ hooksecurefunc("KitHooked", function() calls[#calls + 1] = "hook" end)
 eq(KitHooked(), 7, "a hook keeps the original's return")
 eq(table.concat(calls, ","), "orig,hook", "the hook runs after")
 eq(WoW.hooked[_G].KitHooked, 1, "hooks are counted")
+rawset(_G, "KitTrailing", function() return true, nil end)
+hooksecurefunc("KitTrailing", function() end)
+eq(select("#", KitTrailing()), 2, "a hook keeps trailing nil returns")
 
 -- WoW.reset runs the consumer's hooks.
 local resets = 0

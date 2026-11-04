@@ -169,7 +169,10 @@ function Methods.GetPoint(w, i)
     local p = w._points[i or 1]
     if p then return p[1], p[2], p[3], p[4], p[5] end
 end
-function Methods.SetAllPoints(w, rel) table.insert(w._points, { "ALL", rel }) end
+function Methods.SetAllPoints(w, rel)
+    if refused(w, "SetAllPoints") then return end   -- a re-anchor, like SetPoint
+    table.insert(w._points, { "ALL", rel })
+end
 function Methods.SetSize(w, x, y) w._width, w._height = x, y end
 function Methods.SetWidth(w, x) w._width = x end
 function Methods.SetHeight(w, y) w._height = y end
@@ -377,15 +380,16 @@ strmatch = string.match
 -- to hook a Blizzard function. WoW.hooked[t][name] counts the hooks, so a
 -- "no field written" check can tell a hook from a field the addon wrote.
 WoW.hooked = {}
+local function pack(...) return { n = select("#", ...), ... } end
 function hooksecurefunc(t, name, fn)
     if type(t) == "string" then t, name, fn = _G, t, name end
     WoW.hooked[t] = WoW.hooked[t] or {}
     WoW.hooked[t][name] = (WoW.hooked[t][name] or 0) + 1
     local orig = rawget(t, name) or t[name]
     rawset(t, name, function(...)
-        local r = { orig(...) }
+        local r = pack(orig(...))   -- n keeps trailing nils
         fn(...)
-        return unpack(r)
+        return unpack(r, 1, r.n)
     end)
 end
 
@@ -409,7 +413,7 @@ function WoW.flushTimers(upTo)
         if upTo == nil or t.s <= upTo then run[#run + 1] = t else keep[#keep + 1] = t end
     end
     WoW.timers = keep
-    for _, t in ipairs(run) do t.fn() end
+    for _, t in ipairs(run) do if not t.cancelled then t.fn() end end
 end
 function WoW.advance(dt)
     WoW.now = (WoW.now or 0) + dt
@@ -421,7 +425,7 @@ function WoW.advance(dt)
         end
         if not due then return end
         local t = table.remove(WoW.timers, due)
-        t.fn()
+        if not t.cancelled then t.fn() end   -- a cancelled ticker never fires
     end
 end
 
