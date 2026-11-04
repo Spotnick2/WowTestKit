@@ -79,8 +79,10 @@ otherwise the newest `data/forever-<build>/` here, and `api=1`.
 **The harness** loses `check` / `eq` / `done` (the kit's are global). `tocLines()` /
 `tocFiles()` become wrappers of `Kit.tocLines(TOC)` / `Kit.tocFiles(TOC)`.
 
-**`test_toc`** calls `Kit.checkToc(TOC)` (interface, version token, every listed file exists and
-is listed once) and keeps its own checks on top.
+**`test_toc`** calls `Kit.checkToc(TOC)` (interface, version token, every listed `.lua` file
+exists, every entry is listed once) and keeps its own checks on top. The existence check covers
+`.lua` entries only: an `.xml` or other listed file can be missing and still pass. So keep (or
+add) the repo's own existence checks for those.
 
 **`test_methods`**: exercise the addon as widely as is cheap (load it, `WoW.fireAllRegistered()`,
 some `WoW.tick()` / `WoW.advance()`, open every window and options page, hover and click their
