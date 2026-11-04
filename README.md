@@ -57,6 +57,10 @@ After the forever-api-dump skill has made the new dump:
 lua tools/gen_data.lua ../References/Forever/api/forever-api-<version>.<build>.md
 ```
 
+The dump's `_G` walk ran with addons loaded. The generator drops the owner's addons (`tools/loaded-addons.txt`)
+and the names in an `addon-globals.txt` beside the dump, if there is one (an exact name or a `Prefix*`
+on each line). That list stays with the dumps, so other addons' names never land in this repo.
+
 Commit the new `data/forever-<build>/` with a release. A consumer moves to it by changing
 `build=` in its `tests/kit.pin`.
 

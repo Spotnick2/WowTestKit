@@ -2,6 +2,7 @@
 # C:\Projects\WoW\<Name>). Their globals named <Name>_... are dropped from the
 # _G walk's lists. Add an addon here when its globals show up in a new dump
 # (tests/test_data.lua lists suspects).
+# Another addon's globals go in addon-globals.txt beside the dumps, never here.
 AltStable
 AltStableSync
 AltStableCompanion
@@ -33,6 +34,7 @@ PetStable
 PortalRoulette
 Priestly
 PrimalMailer
+RaidProbe
 Shatter
 Skilled
 Stakeout

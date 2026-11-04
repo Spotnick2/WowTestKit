@@ -38,12 +38,38 @@ for l in io.lines(here .. "/loaded-addons.txt") do
     l = l:gsub("\r$", ""):gsub("%s+$", "")
     if l ~= "" and not l:match("^#") then addons[#addons + 1] = l end
 end
+-- Other loaded addons' globals are listed beside the dumps, outside this repo,
+-- in addon-globals.txt: an exact name or a Prefix* on each line. Third-party
+-- addons are never named here; without that file, nothing more is dropped.
+local exact, prefixes, listFile = {}, {}, nil
+do
+    local dumpDir = dump:match("^(.*)[/\\][^/\\]*$") or "."
+    local path = dumpDir .. "/addon-globals.txt"
+    local lf = io.open(path, "r")
+    if lf then
+        listFile = path
+        for l in lf:lines() do
+            l = l:gsub("\r$", ""):gsub("%s+$", ""):gsub("^%s+", "")
+            if l ~= "" and not l:match("^#") then
+                local p = l:match("^(.-)%*$")
+                if p then prefixes[#prefixes + 1] = p else exact[l] = true end
+            end
+        end
+        lf:close()
+    end
+end
+
 local function addonOwned(name)
     if name:find("_OnAddonCompartment", 1, true) then return true end
     for _, a in ipairs(addons) do
         if name:sub(1, #a + 1) == a .. "_" then return true end
     end
+    if exact[name] then return true end
+    for _, p in ipairs(prefixes) do
+        if name:sub(1, #p) == p then return true end
+    end
 end
+local dropped = 0
 
 local sets = { documented = {}, events = {}, widgets = {}, globals = {}, namespaces = {}, subtypes = {} }
 local section
@@ -77,7 +103,9 @@ for line in f:lines() do
         if pair then sets.widgets[pair] = true end
     elseif section == "globals" then
         local name = line:match("^([%a_][%w_]*)%s*$")
-        if name and not addonOwned(name) then sets.globals[name] = true end
+        if name then
+            if addonOwned(name) then dropped = dropped + 1 else sets.globals[name] = true end
+        end
     elseif section == "namespaces" then
         local name = line:match("^([%a_][%w_]*%.[%w_]+)%s*$")
         if name then sets.namespaces[name] = true end
@@ -126,3 +154,5 @@ write("widget-methods.txt", sets.widgets, "Type:Method pairs off each widget typ
 write("functions.txt", functions, "callable names: documented, the _G walk's, namespace members")
 write("globals.txt", globals, "top-level names: the _G walk's functions and each namespace's root")
 write("events.txt", sets.events, "documented event names")
+io.write(string.format("dropped %d addon globals from the _G walk (tools/loaded-addons.txt%s)\n",
+    dropped, listFile and (", " .. listFile) or "; no addon-globals.txt beside the dump"))
