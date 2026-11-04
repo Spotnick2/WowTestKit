@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lua5.1
+
+      # The kit's own tests, with the runner consumers use. The dumps aren't
+      # here, so test_data checks the lists' shape only (it says so).
+      - name: Kit tests
+        run: bash scripts/run.sh "" kit.lua core/*.lua checks/*.lua tools/gen_data.lua bootstrap/kit.lua
+
+      - name: Shell syntax
+        run: bash -n bootstrap/fetch_kit.sh && bash -n scripts/run.sh
+
+      # End to end, as a consumer's CI does it: a repo with tests/kit.pin
+      # naming this commit, the bootstrap fetching it by SHA, a test loading it.
+      - name: Consumer bootstrap
+        env:
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          c="$RUNNER_TEMP/consumer"
+          mkdir -p "$c/tests"
+          printf 'sha=%s\nbuild=70532\napi=1\n' "$SHA" > "$c/tests/kit.pin"
+          cp bootstrap/kit.lua bootstrap/fetch_kit.sh "$c/tests/"
+          cp tests/fixtures/consumer_smoke.lua "$c/tests/test_smoke.lua"
+          cd "$c"
+          bash tests/fetch_kit.sh "$RUNNER_TEMP/WowTestKit"
+          WOWTESTKIT="$RUNNER_TEMP/WowTestKit" bash "$RUNNER_TEMP/WowTestKit/scripts/run.sh"

@@ -1,0 +1,8 @@
+## Interface: 16001
+## Title: Fixture
+## Version: @project-version@
+
+Libs\Lib.xml
+A.lua
+# a comment
+Sub\B.lua
