@@ -49,6 +49,8 @@ Local runs and CI use the same pinned commit. The local copy is cached in
 `%LOCALAPPDATA%\WowTestKit\<sha>`, outside the repo, and works offline once fetched.
 `tests\run.ps1 -KitDev` runs against the `..\WowTestKit` working copy instead, to try a kit change.
 
+An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
+
 ## A new client build
 
 After the forever-api-dump skill has made the new dump:
