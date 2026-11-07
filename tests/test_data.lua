@@ -17,6 +17,27 @@ local function lines(path)
     return all
 end
 
+local WIN = package.config:sub(1, 1) == "\\"
+
+-- A scratch folder for the regenerated data. On Windows, Lua 5.1's os.tmpname()
+-- (MSVC tmpnam) returns a bare name at the drive root (\s1ok.), so keep only
+-- its name and put it under %TEMP% (WowTestKit #14).
+local function scratch()
+    local name = os.tmpname()
+    if WIN then
+        local base = os.getenv("TEMP") or os.getenv("TMP") or "."
+        name = base .. "\\wowtestkit-" .. name:match("[^\\/]*$"):gsub("%.", "-")
+    else
+        os.remove(name)
+    end
+    return (name:gsub("\\", "/"))
+end
+
+local function rmtree(dir)
+    if WIN then os.execute('rmdir /s /q "' .. dir:gsub("/", "\\") .. '" 2>nul')
+    else os.execute("rm -rf '" .. dir .. "'") end
+end
+
 local DUMPS = os.getenv("WOWTESTKIT_DUMPS") or "C:/Projects/WoW/References/Forever/api"
 local compared = 0
 for _, build in ipairs(builds) do
@@ -47,17 +68,18 @@ for _, build in ipairs(builds) do
         or ("ls '" .. DUMPS .. "' 2>/dev/null | grep '\\." .. build .. "\\.md$'"))
     if p then dump = p:read("*l"); p:close() end
     if dump and dump ~= "" then
-        local tmp = os.tmpname():gsub("\\", "/")
-        os.remove(tmp)
+        local tmp = scratch()
         local lua = arg[-1] or "lua"
         local cmd = '"' .. lua .. '" tools/gen_data.lua "' .. DUMPS .. "/" .. dump .. '" "' .. tmp .. '"'
-        if package.config:sub(1, 1) == "\\" then cmd = '"' .. cmd .. ' >nul"' else cmd = cmd .. " >/dev/null" end
+        if WIN then cmd = '"' .. cmd .. ' >nul"' else cmd = cmd .. " >/dev/null" end
         os.execute(cmd)
         for _, file in ipairs(FILES) do
             local a, b = lines("data/forever-" .. build .. "/" .. file), lines(tmp .. "/forever-" .. build .. "/" .. file)
             check(b and #a == #b and table.concat(a, "\n") == table.concat(b, "\n"),
                 "data/forever-" .. build .. "/" .. file .. " is what the generator makes from " .. dump)
         end
+        rmtree(tmp)
+        check(not lines(tmp .. "/forever-" .. build .. "/events.txt"), build .. ": the scratch folder " .. tmp .. " is removed")
         compared = compared + 1
     end
 end
