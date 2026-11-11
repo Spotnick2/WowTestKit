@@ -82,6 +82,25 @@ local function record(w, name)
     WoW.methodsCalled[w._type .. ":" .. name] = true
 end
 
+-- The methods a protected frame refuses in combat (WowTestKit #12). The
+-- refusal is silent on the client (the call does nothing and raises
+-- ADDON_ACTION_BLOCKED): here it's recorded in WoW.blocked as "name:Method".
+-- Checked when the call is made, before any implementation, so a consumer
+-- that replaces one of these Methods keeps the refusal. A consumer adds the
+-- ones it relies on (SetParent, SetScale...): WoW.PROTECTED.SetScale = true.
+-- Sources: porting guide, "Secure click-casting works" (measured on 69913:
+-- SetAttribute does nothing; a frame parenting secure buttons refuses to
+-- hide, move, re-anchor, unclamp or stop a drag) and the action bar section
+-- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar). Resizing
+-- is the client's standard lockdown, not measured on Forever separately.
+WoW.PROTECTED = {
+    Show = true, Hide = true, SetShown = true,
+    SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
+    SetAttribute = true, RegisterForClicks = true,
+    SetSize = true, SetWidth = true, SetHeight = true,
+    StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
+}
+
 -- Any capitalised key is a method: recorded, then its implementation if one
 -- exists, else nil. Lower-case keys are fields and read as nil.
 local widgetMT = {
@@ -89,6 +108,7 @@ local widgetMT = {
         if type(k) ~= "string" or not k:match("^%u") then return nil end
         return function(self, ...)
             record(self, k)
+            if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
             local impl = Methods[k]
             if impl then return impl(self, ...) end
             return nil
@@ -128,9 +148,10 @@ function CreateFrame(ftype, name, parent, template)
     return w
 end
 
--- A protected frame (w._protected, set by a secure template) refuses to show,
--- hide or move in combat, as the client does: nothing happens and the call is
--- recorded in WoW.blocked (porting guide, "Secure click-casting works").
+-- A protected frame (w._protected, set by a secure template) refuses the
+-- WoW.PROTECTED methods in combat, as the client does: nothing happens and
+-- the call is recorded in WoW.blocked. The dispatch above checks it; the
+-- methods below also call it, for a direct Methods.Show(w) from a stub.
 local function refused(w, what)
     if WoW.combat and w._protected then
         table.insert(WoW.blocked, (w._name or w._type) .. ":" .. what)
@@ -199,9 +220,10 @@ function Methods.GetDebugName(w) return w._name or ("<" .. w._type .. ">") end
 function Methods.GetObjectType(w) return w._type end
 function Methods.IsForbidden(w) return false end
 
--- Attributes: recorded; refused on a protected frame in combat, as the client does.
+-- Attributes: recorded; refused (and recorded in WoW.blocked) on a protected
+-- frame in combat, as the client does.
 function Methods.SetAttribute(w, k, v)
-    if WoW.combat and w._protected then return end
+    if refused(w, "SetAttribute") then return end
     w._attrs = w._attrs or {}
     w._attrs[k] = v
 end
