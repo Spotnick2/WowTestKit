@@ -320,7 +320,15 @@ function Methods.SetValue(b, v)
     b._value = v
     if b._type == "Slider" and v ~= old and b._scripts.OnValueChanged then b._scripts.OnValueChanged(b, v, false) end
 end
-function Methods.SetStatusBarColor(b, r, g, bl, a) b._color = { r, g, bl, a } end
+-- The bar's colour is its fill texture's vertex colour, and setting it
+-- replaces a gradient painted on the fill (measured on 70450, LibGlass#64:
+-- GetVertexColor reads the new colour, the gradient's stripes are gone). With
+-- SetAlpha ignored on a gradient (above), this decides a repainted bar's
+-- opacity.
+function Methods.SetStatusBarColor(b, r, g, bl, a)
+    b._color = { r, g, bl, a }
+    if b._fill then b._fill._gradient, b._fill._vertex = nil, { r, g, bl, a } end
+end
 function Methods.SetStatusBarTexture(b, file)
     b._fill = b._fill or newWidget("Texture", b)
     b._fill._file = file
