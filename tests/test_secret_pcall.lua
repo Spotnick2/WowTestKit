@@ -30,6 +30,13 @@ check(not ok2 and type(err) == "table" and err.code == 7, "a table error passes 
 check(not WoW.rawpcall(function() return s + 1 end), "WoW.rawpcall catches")
 eq(WoW.secretBlocked, 5, "without counting")
 
+-- The core run again (a fresh client) wraps Lua's pcall, not its own.
+dofile(Kit.ROOT .. "/core/stubs.lua")
+local again = WoW.Secret("again")
+pcall(function() return again + 1 end)
+eq(WoW.secretBlocked, 1, "after the core runs again, one touch counts once")
+eq(Kit.rawpcall, WoW.rawpcall, "and WoW.rawpcall is still Lua's own")
+
 WoW.reset()
 eq(WoW.secretBlocked, 0, "WoW.reset clears the count")
 eq(WoW.secretBlockedFirst, nil, "and the message")

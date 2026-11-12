@@ -69,7 +69,10 @@ local function countSecret(err)
         WoW.secretBlockedFirst = WoW.secretBlockedFirst or err
     end
 end
-local rawpcall, rawxpcall = pcall, xpcall
+-- Lua's own, kept on Kit: this file runs again for a fresh client
+-- (Kit.freshClient), and must not wrap its own counting pcall.
+Kit.rawpcall, Kit.rawxpcall = Kit.rawpcall or pcall, Kit.rawxpcall or xpcall
+local rawpcall, rawxpcall = Kit.rawpcall, Kit.rawxpcall
 WoW.rawpcall = rawpcall
 local function counted(ok, ...)
     if not ok then countSecret((...)) end
