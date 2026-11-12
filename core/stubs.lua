@@ -98,7 +98,7 @@ local widgetMT = {
 
 local function newWidget(wtype, parent, name)
     return setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
-                          _scripts = {}, _events = {},
+                          _scripts = {}, _events = {}, _unitEvents = {},
                           _level = parent and parent._level and (parent._level + 1) or 1,
                           _width = 0, _height = 0, _name = name }, widgetMT)
 end
@@ -219,9 +219,25 @@ function Methods.RegisterEvent(w, e)
     w._events[e] = true
     return true
 end
-function Methods.UnregisterEvent(w, e) w._events[e] = nil end
-function Methods.UnregisterAllEvents(w) w._events = {} end
-function Methods.IsEventRegistered(w, e) return w._events[e] == true end
+-- RegisterUnitEvent(event, unit1, unit2, ...) (WowTestKit #17): the event
+-- reaches the frame only when its first payload argument is one of those
+-- units. The dump declares units with StrideIndex 1, and Blizzard's own code
+-- passes several ("player", "pet"). w._unitEvents[event] is the set of units;
+-- a later call replaces it. A plain RegisterEvent of the same event gets every
+-- unit's.
+function Methods.RegisterUnitEvent(w, e, ...)
+    if not WoW.KNOWN_EVENTS[e] then error("Attempt to register unknown event \"" .. tostring(e) .. "\"", 2) end
+    local units = {}
+    for i = 1, select("#", ...) do
+        local u = select(i, ...)
+        if u ~= nil then units[u] = true end
+    end
+    w._unitEvents[e] = units
+    return true
+end
+function Methods.UnregisterEvent(w, e) w._events[e] = nil; w._unitEvents[e] = nil end
+function Methods.UnregisterAllEvents(w) w._events = {}; w._unitEvents = {} end
+function Methods.IsEventRegistered(w, e) return w._events[e] == true or w._unitEvents[e] ~= nil end
 
 -- Regions: in creation order for GetRegions (w._regions), as the client lists
 -- a frame's textures and font strings; a named one is also a global.
@@ -436,23 +452,46 @@ end
 -- Fire an event at every frame registered for it. Errors are NOT caught: a
 -- handler that throws fails the test.
 function WoW.fire(event, ...)
+    local unit = ...
     for _, w in ipairs(WoW.frames) do
         local handler = w._scripts.OnEvent
-        if handler and w._events[event] then handler(w, event, ...) end
+        if handler then
+            local units = w._unitEvents[event]
+            if w._events[event] or (units and unit ~= nil and units[unit]) then handler(w, event, ...) end
+        end
     end
 end
 
--- Every event any frame registered, fired once with no payload: strict
--- globals only catch code that actually runs.
+-- Every event any frame registered, so strict globals catch the code that
+-- handles it. A plain event fires once with no payload. A unit event (some
+-- frame registered it with RegisterUnitEvent) fires once per unit any frame
+-- registered it for, with that unit as its payload, so a handler that
+-- indexes by unit runs; plain registrations of it get each of those.
+-- Returns the events fired, sorted.
 function WoW.fireAllRegistered()
-    local seen = {}
+    local seen, units = {}, {}
     for _, w in ipairs(WoW.frames) do
         for e in pairs(w._events) do seen[e] = true end
+        for e, set in pairs(w._unitEvents) do
+            seen[e] = true
+            units[e] = units[e] or {}
+            for u in pairs(set) do units[e][u] = true end
+        end
     end
     local list = {}
     for e in pairs(seen) do list[#list + 1] = e end
     table.sort(list)   -- the same order on every run
-    for _, e in ipairs(list) do WoW.fire(e) end
+    for _, e in ipairs(list) do
+        if units[e] then
+            local us = {}
+            for u in pairs(units[e]) do us[#us + 1] = u end
+            table.sort(us)
+            for _, u in ipairs(us) do WoW.fire(e, u) end
+        else
+            WoW.fire(e)
+        end
+    end
+    return list
 end
 
 -- One rendered frame: OnUpdate on every visible frame.
