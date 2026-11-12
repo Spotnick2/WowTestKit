@@ -197,26 +197,47 @@ local function hasMethod(wtype, k)
     return not buildTypes[wtype]
 end
 
--- A capitalised key is a method when the widget's type has it on the build,
--- when a Methods implementation exists, or when it's allowed: reading it
--- gives a function that records "Type:Method" and runs the implementation
--- (nil without one). Any other capitalised key reads as nil, as on the
--- client, so a call to it fails where it's made. Lower-case keys are fields
--- and read as nil. A lookup with no widget (__index(nil, k), a table-style
--- method lookup) answers every capitalised key, as before.
-local widgetMT = {
-    __index = function(w, k)
-        if type(k) ~= "string" or not k:match("^%u") then return nil end
-        if w and w._type and not Methods[k] and not hasMethod(w._type, k) then return nil end
-        return function(self, ...)
-            record(self, k)
-            if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
-            local impl = Methods[k]
-            if impl then return impl(self, ...) end
+-- A method: records "Type:Method" for the widget it's called on, refuses a
+-- protected one in combat, then runs the implementation (nil without one).
+local function method(k)
+    return function(self, ...)
+        record(self, k)
+        if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
+        local impl = Methods[k]
+        if impl then return impl(self, ...) end
+        return nil
+    end
+end
+
+-- One method table per widget type, the __index of that type's metatable,
+-- as on the client (WowTestKit #7): an addon can call the type's method on
+-- a widget whose own field shadows it,
+--   local W = getmetatable(CreateFrame("Frame")).__index
+--   W.SetPoint(btn, ...)
+-- A capitalised key is a method when the type has it on the build, when a
+-- Methods implementation exists, or when it's allowed (Kit.allowMethods).
+-- The build's and the allowed ones are kept in the table, so every read
+-- gives the same function, as on the client; an implementation-only one is
+-- looked up again on each read. Any other key reads as nil, as on the
+-- client, so a call to it fails where it's made (lower-case keys too:
+-- they're fields).
+local methodTables, widgetMTs = {}, {}
+local function widgetMT(wtype)
+    if not widgetMTs[wtype] then
+        local t = setmetatable({}, { __index = function(tbl, k)
+            if type(k) ~= "string" or not k:match("^%u") then return nil end
+            if hasMethod(wtype, k) then
+                local fn = method(k)
+                rawset(tbl, k, fn)
+                return fn
+            end
+            if Methods[k] then return method(k) end
             return nil
-        end
-    end,
-}
+        end })
+        methodTables[wtype], widgetMTs[wtype] = t, { __index = t }
+    end
+    return widgetMTs[wtype]
+end
 
 -- Whether w is visible: shown, and every ancestor shown.
 local function visible(w)
@@ -229,7 +250,7 @@ local function newWidget(wtype, parent, name)
     local w = setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
                              _scripts = {}, _events = {}, _unitEvents = {},
                              _level = parent and parent._level and (parent._level + 1) or 1,
-                             _width = 0, _height = 0, _name = name }, widgetMT)
+                             _width = 0, _height = 0, _name = name }, widgetMT(wtype))
     w._vis = visible(w)
     return w
 end
