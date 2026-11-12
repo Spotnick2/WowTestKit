@@ -49,6 +49,37 @@ function issecretvalue(v) return secrets[v] ~= nil end
 -- model; use this to reach `type(x) == "string"` branches. Returns v.
 function WoW.MarkSecret(v, label) secrets[v] = label or "marked"; return v end
 
+-- A blocked operation on a secret that a pcall caught still counts
+-- (WowTestKit #13): the client writes every one to Logs/taint.log, caught or
+-- not (Apotheca measured 106 lines in one session from health and mana
+-- reads). pcall and xpcall count each in WoW.secretBlocked (WoW.reset clears
+-- it), and done() fails on one. Two shapes reach them: a proxy's metamethod
+-- ("secret value touched in Lua"), and an ordering against a number or a
+-- string, which Lua 5.1 refuses before any metamethod runs ("attempt to
+-- compare number with userdata"). A test that touches a secret on purpose
+-- reads the count, then sets it back to 0; WoW.rawpcall doesn't count.
+local function isSecretError(err)
+    return type(err) == "string" and (err:find("secret value touched in Lua", 1, true) ~= nil
+        or err:find("attempt to compare %a+ with userdata") ~= nil
+        or err:find("attempt to compare userdata with %a+") ~= nil)
+end
+local function countSecret(err)
+    if isSecretError(err) then
+        WoW.secretBlocked = (WoW.secretBlocked or 0) + 1
+        WoW.secretBlockedFirst = WoW.secretBlockedFirst or err
+    end
+end
+local rawpcall, rawxpcall = pcall, xpcall
+WoW.rawpcall = rawpcall
+local function counted(ok, ...)
+    if not ok then countSecret((...)) end
+    return ok, ...
+end
+function pcall(f, ...) return counted(rawpcall(f, ...)) end
+function xpcall(f, handler)
+    return rawxpcall(f, function(err) countSecret(err); return handler(err) end)
+end
+
 --------------------------------------------------------------------------------
 -- Known events: the selected build's
 --------------------------------------------------------------------------------
@@ -68,6 +99,7 @@ function WoW.reset()
     WoW.combat = false
     WoW.timers = {}
     WoW.blocked = {}
+    WoW.secretBlocked, WoW.secretBlockedFirst = 0, nil
     for _, fn in ipairs(WoW.onReset) do fn() end
 end
 
@@ -476,7 +508,7 @@ WoW.reset()
 -- in the build's globals list. FrameXML names (not in a function list) are
 -- listed apart, each with where it comes from.
 Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "InCombatLockdown",
-                     "strmatch", "hooksecurefunc", "C_Timer" }
+                     "strmatch", "hooksecurefunc", "C_Timer", "pcall", "xpcall" }
 Kit.CORE_FRAMEXML = { UIParent = "FrameXML UIParent.xml; a widget type of its own in the dump" }
 
 -- allowNil: the names that may read as nil (the addon's own globals before

@@ -11,6 +11,8 @@ check(issecretvalue(s), "a secret is secret")
 check(not pcall(function() return s .. "x" end), "concat on a secret throws")
 check(not pcall(function() return s + 1 end), "arithmetic on a secret throws")
 check(not pcall(tostring, s), "tostring on a secret throws")
+eq(WoW.secretBlocked, 3, "each touch a pcall caught is counted (test_secret_pcall covers it)")
+WoW.secretBlocked, WoW.secretBlockedFirst = 0, nil   -- on purpose here
 local plain = {}
 eq(WoW.MarkSecret(plain), plain, "MarkSecret returns the value")
 check(issecretvalue(plain), "a marked value is secret")
