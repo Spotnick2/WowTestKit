@@ -1,6 +1,6 @@
 -- The stub core's mechanics, against the newest build's data.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 -- The core's client globals are the client's.
 Kit.checkCore()
@@ -25,8 +25,9 @@ f:SetScript("OnEvent", function(_, e, a) got = e .. ":" .. tostring(a) end)
 WoW.fire("PLAYER_LOGIN", 1)
 eq(got, "PLAYER_LOGIN:1", "fire reaches the registered frame")
 check(WoW.methodsCalled["Frame:RegisterEvent"] and WoW.methodsCalled["Frame:SetScript"], "method calls are recorded")
-eq(f:SomethingUnstubbed(), nil, "an unimplemented method returns nil")
-check(WoW.methodsCalled["Frame:SomethingUnstubbed"], "and is recorded for the methods check")
+eq(f:SetClampedToScreen(true), nil, "a real method the core doesn't implement returns nil")
+check(WoW.methodsCalled["Frame:SetClampedToScreen"], "and is recorded for the methods check")
+eq(f.SomethingUnstubbed, nil, "a method the build lacks reads as nil (test_absent_methods covers it)")
 
 -- Templates and combat refusals.
 WoW.templates.KitSecureTemplate = function(w) w._protected = true end

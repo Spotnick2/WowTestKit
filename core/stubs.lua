@@ -104,11 +104,58 @@ WoW.PROTECTED = {
     StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
 }
 
--- Any capitalised key is a method: recorded, then its implementation if one
--- exists, else nil. Lower-case keys are fields and read as nil.
+-- Animation subtypes may call their own methods (the dump's
+-- SimpleAnim<Type>API) or any Animation method.
+Kit.ANIMATION_TYPES = { Alpha = true, Translation = true, Scale = true, Rotation = true, Path = true,
+                        LineScale = true, LineTranslation = true, FlipBook = true, VertexColor = true,
+                        TextureCoordTranslation = true }
+
+-- Methods a Blizzard mixin adds in Lua (BackdropTemplateMixin's SetBackdrop,
+-- MapCanvasMixin's GetMapID...), which the dump's widget walk can't see:
+-- Kit.allowMethods({ ["Frame:SetBackdrop"] = "BackdropTemplateMixin (Backdrop.lua)" })
+-- before the addon loads. Each needs its reason. They read as methods, and
+-- Kit.checkMethods accepts them. Kept across Kit.freshClient().
+Kit.allowedMethods = Kit.allowedMethods or {}
+function Kit.allowMethods(map)
+    for pair, why in pairs(map) do
+        if type(pair) ~= "string" or not pair:match("^[%w_]+:[%w_]+$") then
+            error("Kit.allowMethods: a pair reads Type:Method, got " .. tostring(pair), 2)
+        end
+        if type(why) ~= "string" or why == "" then
+            error("Kit.allowMethods: " .. pair .. " needs its reason (the Blizzard file that adds it)", 2)
+        end
+        Kit.allowedMethods[pair] = why
+    end
+end
+
+-- Whether a widget of this type has this method on the selected build, so
+-- that feature detection (`if type(f.GetModel) == "function"`) behaves as
+-- on the client (WowTestKit #22).
+local buildTypes
+local function hasMethod(wtype, k)
+    local known = Kit.data("widgetMethods")
+    if not buildTypes then
+        buildTypes = {}
+        for pair in pairs(known) do buildTypes[pair:match("^([%w_]+):")] = true end
+    end
+    local pair = wtype .. ":" .. k
+    if known[pair] or Kit.allowedMethods[pair] then return true end
+    if Kit.ANIMATION_TYPES[wtype] and known["Animation:" .. k] then return true end
+    -- A type the build doesn't have (a test's own): Kit.checkMethods names it.
+    return not buildTypes[wtype]
+end
+
+-- A capitalised key is a method when the widget's type has it on the build,
+-- when a Methods implementation exists, or when it's allowed: reading it
+-- gives a function that records "Type:Method" and runs the implementation
+-- (nil without one). Any other capitalised key reads as nil, as on the
+-- client, so a call to it fails where it's made. Lower-case keys are fields
+-- and read as nil. A lookup with no widget (__index(nil, k), a table-style
+-- method lookup) answers every capitalised key, as before.
 local widgetMT = {
     __index = function(w, k)
         if type(k) ~= "string" or not k:match("^%u") then return nil end
+        if w and w._type and not Methods[k] and not hasMethod(w._type, k) then return nil end
         return function(self, ...)
             record(self, k)
             if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
@@ -584,9 +631,15 @@ function WoW.fireAllRegistered()
     for _, e in ipairs(list) do WoW.fire(e) end
 end
 
--- One rendered frame: OnUpdate on every visible frame.
+-- One rendered frame: the clock moves on by elapsed, then OnUpdate runs on
+-- every visible frame with it. On the client a frame's elapsed and GetTime()
+-- move together, so code that times something by GetTime() inside its
+-- OnUpdate sees time pass (WowTestKit #9). Timers stay with WoW.advance and
+-- WoW.flushTimers: a test that wants both calls WoW.advance(dt), then
+-- WoW.tick(0).
 function WoW.tick(elapsed)
     elapsed = elapsed or 0.02
+    WoW.now = (WoW.now or 0) + elapsed
     local list = {}
     for _, w in ipairs(WoW.frames) do list[#list + 1] = w end
     for _, w in ipairs(list) do
