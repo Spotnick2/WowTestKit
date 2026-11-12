@@ -259,6 +259,14 @@ local function newWidget(wtype, parent, name)
 end
 WoW.newWidget = newWidget
 
+-- A named widget is a global, as on the client. WoW.published remembers each
+-- name the core set, so a fresh client can take the old client's off (#45).
+WoW.published = {}
+local function publish(name, w)
+    rawset(_G, name, w)
+    WoW.published[name] = w
+end
+
 -- Templates: WoW.templates[name](frame) builds what that template adds
 -- (parentKey children, scripts, _protected). A comma-separated list runs each
 -- in order. Unknown templates add nothing.
@@ -280,7 +288,7 @@ function CreateFrame(ftype, name, parent, template)
         parent._children = parent._children or {}   -- a stub's own parent table
         table.insert(parent._children, w)
     end
-    if name then rawset(_G, name, w) end
+    if name then publish(name, w) end
     w._vis = visible(w)   -- the visibility its OnShow / OnHide last reported (below)
     return w
 end
@@ -473,12 +481,12 @@ WoW.addRegion = addRegion   -- for a consumer's own region makers (CreateLine)
 function Methods.CreateTexture(w, name, layer, template, sublevel)
     local t = addRegion(w, newWidget("Texture", w, name))
     t._layer, t._sublevel = layer, sublevel
-    if name then rawset(_G, name, t) end
+    if name then publish(name, t) end
     return t
 end
 function Methods.CreateFontString(w, name)
     local fs = addRegion(w, newWidget("FontString", w, name))
-    if name then rawset(_G, name, fs) end
+    if name then publish(name, fs) end
     return fs
 end
 function Methods.CreateMaskTexture(w) return newWidget("MaskTexture", w) end
