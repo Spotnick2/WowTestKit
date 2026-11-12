@@ -82,7 +82,25 @@ local function record(w, name)
     WoW.methodsCalled[w._type .. ":" .. name] = true
 end
 
-<<<<<<< HEAD
+-- The methods a protected frame refuses in combat (WowTestKit #12). The
+-- refusal is silent on the client (the call does nothing and raises
+-- ADDON_ACTION_BLOCKED): here it's recorded in WoW.blocked as "name:Method".
+-- Checked when the call is made, before any implementation, so a consumer
+-- that replaces one of these Methods keeps the refusal. A consumer adds the
+-- ones it relies on (SetParent, SetScale...): WoW.PROTECTED.SetScale = true.
+-- Sources: porting guide, "Secure click-casting works" (measured on 69913:
+-- SetAttribute does nothing; a frame parenting secure buttons refuses to
+-- hide, move, re-anchor, unclamp or stop a drag) and the action bar section
+-- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar). Resizing
+-- is the client's standard lockdown, not measured on Forever separately.
+WoW.PROTECTED = {
+    Show = true, Hide = true, SetShown = true,
+    SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
+    SetAttribute = true, RegisterForClicks = true,
+    SetSize = true, SetWidth = true, SetHeight = true,
+    StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
+}
+
 -- Animation subtypes may call their own methods (the dump's
 -- SimpleAnim<Type>API) or any Animation method.
 Kit.ANIMATION_TYPES = { Alpha = true, Translation = true, Scale = true, Rotation = true, Path = true,
@@ -131,29 +149,6 @@ end
 -- client, so a call to it fails where it's made. Lower-case keys are fields
 -- and read as nil. A lookup with no widget (__index(nil, k), a table-style
 -- method lookup) answers every capitalised key, as before.
-=======
--- The methods a protected frame refuses in combat (WowTestKit #12). The
--- refusal is silent on the client (the call does nothing and raises
--- ADDON_ACTION_BLOCKED): here it's recorded in WoW.blocked as "name:Method".
--- Checked when the call is made, before any implementation, so a consumer
--- that replaces one of these Methods keeps the refusal. A consumer adds the
--- ones it relies on (SetParent, SetScale...): WoW.PROTECTED.SetScale = true.
--- Sources: porting guide, "Secure click-casting works" (measured on 69913:
--- SetAttribute does nothing; a frame parenting secure buttons refuses to
--- hide, move, re-anchor, unclamp or stop a drag) and the action bar section
--- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar). Resizing
--- is the client's standard lockdown, not measured on Forever separately.
-WoW.PROTECTED = {
-    Show = true, Hide = true, SetShown = true,
-    SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
-    SetAttribute = true, RegisterForClicks = true,
-    SetSize = true, SetWidth = true, SetHeight = true,
-    StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
-}
-
--- Any capitalised key is a method: recorded, then its implementation if one
--- exists, else nil. Lower-case keys are fields and read as nil.
->>>>>>> main
 local widgetMT = {
     __index = function(w, k)
         if type(k) ~= "string" or not k:match("^%u") then return nil end
