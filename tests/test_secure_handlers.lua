@@ -2,7 +2,7 @@
 -- action, and clicks to drive them (WowTestKit #20; Blizzard's
 -- Blizzard_RestrictedAddOnEnvironment, wow-ui-source 70862).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 Kit.checkCore()   -- the secure handler globals are the build's
 
