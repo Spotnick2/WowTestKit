@@ -359,9 +359,11 @@ function Methods.SetWidth(w, x) w._width = x end
 function Methods.SetHeight(w, y) w._height = y end
 function Methods.GetWidth(w) return w._width end
 function Methods.GetHeight(w) return w._height end
--- A texture painted with SetGradient ignores a later SetAlpha (measured on
--- 70374, porting guide section 3, GlassChat #95): GetAlpha still reads what it
--- read before. Modelled, so a test of a gradient's alpha can't pass against it.
+-- A texture with a gradient ignores SetAlpha, in either order (measured on
+-- 70374, porting guide section 3, "A gradient texture ignores SetAlpha"; LibGlass
+-- r7 probe): GetAlpha reads 1 and the gradient's colours alone set its alpha.
+-- SetGradient drops an alpha set before it (WowTestKit #37), and SetAlpha after
+-- it does nothing. Modelled, so a test of a gradient's alpha can't pass against it.
 function Methods.SetAlpha(w, a) if not w._gradient then w._alpha = a end end
 function Methods.GetAlpha(w) return w._alpha or 1 end
 function Methods.GetParent(w) return w._parent end
@@ -487,7 +489,16 @@ function Methods.SetColorTexture(t, r, g, b, a) t._color = { r, g, b, a }; t._fi
 function Methods.SetBlendMode(t, mode) t._blend = mode end
 function Methods.SetVertexColor(t, r, g, b, a) t._vertex = { r, g, b, a } end
 function Methods.SetDesaturated(t, on) t._desaturated = on == true end
-function Methods.SetGradient(t, orientation, c1, c2) t._gradient = { orientation, c1, c2 } end
+-- SetGradient(orientation, minColor, maxColor): the colours are colour
+-- objects (the dump's colorRGBA, made by CreateColor), not numbers.
+function Methods.SetGradient(t, orientation, c1, c2)
+    if type(c1) ~= "table" or type(c2) ~= "table" then
+        error("SetGradient(orientation, minColor, maxColor): the colours are colour objects (CreateColor), got "
+            .. type(c1) .. ", " .. type(c2), 2)
+    end
+    t._gradient = { orientation, c1, c2 }
+    t._alpha = nil   -- a gradient's alpha is its colours' (GetAlpha reads 1)
+end
 function Methods.AddMaskTexture(t, m) t._masks = t._masks or {}; table.insert(t._masks, m) end
 
 -- Text. An EditBox runs its OnTextChanged on SetText, as the client does.

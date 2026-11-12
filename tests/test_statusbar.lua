@@ -9,10 +9,9 @@ eq(bar._color[4], 0.8, "with no fill yet, the colour is still recorded (alpha to
 
 bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 local fill = bar:GetStatusBarTexture()
-fill:SetAlpha(0.3)
 fill:SetGradient("HORIZONTAL", {}, {})
-fill:SetAlpha(1)
-eq(fill:GetAlpha(), 0.3, "a gradient fill ignores SetAlpha (70374)")
+fill:SetAlpha(0.3)
+eq(fill:GetAlpha(), 1, "a gradient fill ignores SetAlpha (70374)")
 
 bar:SetStatusBarColor(0.67, 0.83, 0.45)
 eq(fill._gradient, nil, "a recolour drops the fill's gradient")

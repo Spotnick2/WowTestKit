@@ -47,3 +47,16 @@ fails where it's made ("attempt to call method 'X' (a nil value)").
   and NodeRadar allow pairs the same way: check each.
 - **A workaround that faked an absent method goes.** AltStable's `-- WowTestKit #22:`
   `rawset(f, "GetModel", false)` is now the kit's own behaviour.
+
+### `SetGradient` drops an alpha set before it, and takes colour objects (WowTestKit #37)
+
+Measured on 70374 (porting guide section 3): a texture with a gradient reads `GetAlpha()` 1 and
+ignores `SetAlpha`, whichever comes first. The core used to keep an alpha set before
+`SetGradient`. It now drops it, and `SetGradient` throws on colours that aren't colour objects
+(the dump's `colorRGBA`, from `CreateColor`).
+
+- **A stub override that did this goes.** Glass UI's `SetGradient` override (`_alpha = 1`, table
+  colours) is now the kit's own behaviour.
+- **A test that read the earlier alpha back from a gradient texture** now reads 1, as on the client.
+- **A test passing numbers as the colours** passes colour objects (a table with `r`, `g`, `b`, `a`
+  is enough for the stub).
