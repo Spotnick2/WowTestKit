@@ -20,6 +20,13 @@ check(not xpcall(function() return s .. "" end, function(e) handled = e; return 
 eq(WoW.secretBlocked, 5, "xpcall counts it")
 check(handled and handled:find("secret value touched", 1, true), "and still hands the error to its handler")
 
+check(not pcall(string.format, "%s", s), "string.format on a secret throws")
+eq(WoW.secretBlocked, 6, "and is counted (Lua's own argument check names no secret)")
+check(not pcall(function() return ("%d"):format(s) end), "the method form too")
+eq(WoW.secretBlocked, 7, "is counted")
+eq(string.format("%s-%d", "a", 1), "a-1", "string.format still formats plain values")
+WoW.secretBlocked = 5   -- the checks below count from here
+
 -- Other errors aren't counted, and pcall's returns are unchanged.
 check(not pcall(error, "plain"), "a plain error")
 eq(WoW.secretBlocked, 5, "isn't counted")
@@ -49,7 +56,7 @@ if windows then case = (os.getenv("TEMP") or ".") .. "\\wowtestkit-" .. case:gsu
 local f = assert(io.open(case, "w"))
 f:write('dofile("kit.lua")\nKit.load({ build = "70532" })\n',
         'local s = WoW.Secret("UnitPower")\n',
-        'pcall(function() return s * 2 end)\n',
+        'pcall(string.format, "%s", s)\n',
         'done("secret_case")\n')
 f:close()
 local cmd = '"' .. lua .. '" "' .. case .. '" 2>&1'

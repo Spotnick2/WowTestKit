@@ -49,6 +49,23 @@ function issecretvalue(v) return secrets[v] ~= nil end
 -- model; use this to reach `type(x) == "string"` branches. Returns v.
 function WoW.MarkSecret(v, label) secrets[v] = label or "marked"; return v end
 
+-- string.format on a secret proxy: Lua's own argument check refuses the
+-- userdata before any metamethod runs ("bad argument #2 to 'format'"), which
+-- says nothing about a secret. The core's format raises the secret error
+-- instead, naming the secret, so a pcall that swallows it is counted (below).
+-- Lua's own is kept on Kit: this file runs again for a fresh client.
+Kit.rawformat = Kit.rawformat or string.format
+local rawformat = Kit.rawformat
+function string.format(fmt, ...)
+    for i = 1, select("#", ...) do
+        local v = select(i, ...)
+        if type(v) == "userdata" and secrets[v] then
+            error("secret value touched in Lua: " .. secrets[v] .. " (string.format)", 2)
+        end
+    end
+    return rawformat(fmt, ...)
+end
+
 -- A blocked operation on a secret that a pcall caught still counts
 -- (WowTestKit #13): the client writes every one to Logs/taint.log, caught or
 -- not (Apotheca measured 106 lines in one session from health and mana
