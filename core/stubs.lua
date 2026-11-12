@@ -407,21 +407,53 @@ end
 -- - WoW.advance(dt): a clock. WoW.now moves on by dt and the timers due by
 --   then run in the order they fall due; a timer scheduled inside one counts
 --   from the new now, so step a second at a time.
--- A ticker is recorded once, like a timer (it doesn't repeat here).
+--
+-- A ticker repeats, as on the client (WowTestKit #18): it stays in
+-- WoW.timers after it fires, until cancelled or its iterations are used up.
+-- Its handle has Cancel and IsCancelled, and the callback gets the handle
+-- (UITimerDocumentation: NewTicker's callback is a TickerCallback(cb)).
+-- - advance re-arms it at at + every, so a dt spanning several periods
+--   fires it once per period (a 0-second ticker once per advance);
+-- - flushTimers runs it once and re-arms it from now, so flushTimers() again
+--   runs it again: a loop flushing until WoW.timers is empty never ends
+--   while a ticker lives.
+-- Whether IsCancelled reads true after the last iteration is unmeasured:
+-- here it reads false unless Cancel was called.
 C_Timer = {}
 function C_Timer.After(s, fn) table.insert(WoW.timers, { s = s, fn = fn, at = (WoW.now or 0) + s }) end
-function C_Timer.NewTicker(s, fn)
-    local t = { s = s, fn = fn, every = s, at = (WoW.now or 0) + s }
+function C_Timer.NewTicker(s, fn, iterations)
+    local t = { s = s, fn = fn, every = s, at = (WoW.now or 0) + s, iterations = iterations, fired = 0 }
+    t.handle = {
+        Cancel = function() t.cancelled = true end,
+        IsCancelled = function() return t.cancelled == true end,
+    }
     table.insert(WoW.timers, t)
-    return { Cancel = function() t.cancelled = true end }
+    return t.handle
 end
+
+-- Runs one due timer or ticker. A ticker with iterations left goes back in
+-- WoW.timers, re-armed at nextAt, before its callback runs (so a Cancel from
+-- inside the callback holds).
+local function fireTimer(t, nextAt)
+    if t.cancelled then return end
+    if not t.every then return t.fn() end
+    t.fired = t.fired + 1
+    if not (t.iterations and t.fired >= t.iterations) then
+        t.at = nextAt
+        table.insert(WoW.timers, t)
+    end
+    t.fn(t.handle)
+end
+
 function WoW.flushTimers(upTo)
     local run, keep = {}, {}
     for _, t in ipairs(WoW.timers) do
-        if upTo == nil or t.s <= upTo then run[#run + 1] = t else keep[#keep + 1] = t end
+        if t.cancelled then -- dropped
+        elseif upTo == nil or t.s <= upTo then run[#run + 1] = t else keep[#keep + 1] = t end
     end
     WoW.timers = keep
-    for _, t in ipairs(run) do if not t.cancelled then t.fn() end end
+    local now = WoW.now or 0
+    for _, t in ipairs(run) do fireTimer(t, now + (t.every or 0)) end
 end
 function WoW.advance(dt)
     WoW.now = (WoW.now or 0) + dt
@@ -433,7 +465,9 @@ function WoW.advance(dt)
         end
         if not due then return end
         local t = table.remove(WoW.timers, due)
-        if not t.cancelled then t.fn() end   -- a cancelled ticker never fires
+        -- A 0-second ticker would fall due again at once: next advance.
+        local nextAt = t.every and t.every > 0 and at + t.every or WoW.now + 1e-9
+        fireTimer(t, nextAt)   -- a cancelled one never fires
     end
 end
 
