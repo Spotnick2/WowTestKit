@@ -1,7 +1,7 @@
 -- RegisterUnitEvent, and unit events delivered only for the registered units
 -- (WowTestKit #17; SimpleFrameAPIDocumentation: units with StrideIndex 1).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local got = {}
 local function frame(name)
