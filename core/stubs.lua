@@ -68,6 +68,9 @@ function WoW.reset()
     WoW.combat = false
     WoW.timers = {}
     WoW.blocked = {}
+    WoW.secureActions = {}      -- what secure buttons did (WowTestKit #20)
+    WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
+    WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
     for _, fn in ipairs(WoW.onReset) do fn() end
 end
 
@@ -645,6 +648,331 @@ function WoW.tick(elapsed)
     end
 end
 
+--------------------------------------------------------------------------------
+-- Secure handlers (WowTestKit #20), from the client's own source
+-- (wow-ui-source forever, 70862: Blizzard_RestrictedAddOnEnvironment's
+-- SecureHandlers.lua, RestrictedFrames.lua, RestrictedExecution.lua,
+-- RestrictedEnvironment.lua; Blizzard_FrameXML's SecureTemplates.lua).
+-- Secure snippets run on Forever since 70425, in combat too (porting guide,
+-- "Secure click-casting works").
+--
+-- Modelled: SecureHandlerWrapScript / UnwrapScript on OnClick,
+-- SecureHandlerSetFrameRef, SecureHandlerExecute, one environment per
+-- protected frame, frame handles with the methods below, the secure action
+-- button's own click (WoW.secureActionClick), and WoW.click /
+-- WoW.pressKey to drive them. Not modelled: other wrapped scripts, modified
+-- attributes (*type1, shift-type1...), the header templates' own snippet
+-- attributes (_onclick, _onstate-...), and a snippet's error being caught
+-- (here it fails the test).
+--------------------------------------------------------------------------------
+
+-- Templates that make a frame explicitly protected. A consumer that defines
+-- one of these again replaces it; the secure action button's must then set
+-- its OnClick to WoW.secureActionClick itself.
+for _, t in ipairs({ "SecureFrameTemplate", "SecureHandlerBaseTemplate", "SecureHandlerClickTemplate",
+                     "SecureHandlerStateTemplate", "SecureHandlerAttributeTemplate",
+                     "SecureHandlerShowHideTemplate", "SecureHandlerEnterLeaveTemplate" }) do
+    WoW.templates[t] = function(w) w._protected = true end
+end
+WoW.templates.SecureActionButtonTemplate = function(w)
+    w._protected = true
+    w._scripts.OnClick = function(...) return WoW.secureActionClick(...) end
+end
+
+-- What a snippet sees besides its environment's own names: the restricted
+-- scope (RestrictedEnvironment.lua's RESTRICTED_FUNCTIONS_SCOPE and
+-- RestrictedExecution.lua's LOCAL_Restricted_Global_Functions), with plain
+-- tables standing in for restricted ones.
+local function copy(t) local c = {}; for k, v in pairs(t) do c[k] = v end; return c end
+WoW.SECURE_SCOPE = {
+    math = math, string = string, select = select, tonumber = tonumber, tostring = tostring,
+    type = type, pairs = pairs, ipairs = ipairs, next = next, unpack = unpack,
+    -- ENV.print (RestrictedEnvironment.lua:237): the global print, values scrubbed.
+    print = function(...) return print(...) end,
+    newtable = function(...) return { ... } end, copytable = copy,
+    wipe = function(t) for k in pairs(t) do t[k] = nil end; return t end,
+    tinsert = table.insert, tremove = table.remove,
+    table = { maxn = table.maxn, insert = table.insert, remove = table.remove, sort = table.sort,
+              concat = table.concat, new = function(...) return { ... } end,
+              wipe = function(t) for k in pairs(t) do t[k] = nil end; return t end },
+    format = string.format, gsub = string.gsub, strfind = string.find, strlen = string.len,
+    strlower = string.lower, strupper = string.upper, strmatch = string.match, strrep = string.rep,
+    strsub = string.sub, strbyte = string.byte, strchar = string.char,
+    abs = math.abs, ceil = math.ceil, floor = math.floor, max = math.max, min = math.min,
+    mod = math.fmod, random = math.random, sqrt = math.sqrt,
+}
+
+-- Frame handles: one per frame, userdata as on the client.
+local handleFrame = setmetatable({}, { __mode = "k" })   -- handle -> frame
+local frameHandle = setmetatable({}, { __mode = "k" })   -- frame -> handle
+local HANDLE = {}
+local function handleOf(w)
+    if w == nil then return nil end
+    local h = frameHandle[w]
+    if not h then
+        h = newproxy(true)
+        local mt = getmetatable(h)
+        mt.__index = HANDLE
+        mt.__tostring = function() return "handle: " .. tostring(w._name or w._type) end
+        handleFrame[h], frameHandle[w] = w, h
+    end
+    return h
+end
+WoW.handleOf = handleOf
+-- The frame behind a handle (RestrictedFrames.lua's GetHandleFrame): in
+-- combat only a protected frame's; an unprotected frame's handle is then an
+-- "Invalid frame handle" error, as in the client. GetName, GetObjectType,
+-- IsObjectType and IsProtected use the unguarded path (anyFrameOf).
+local function anyFrameOf(h)
+    local w = handleFrame[h]
+    if not w then error("Invalid frame handle", 3) end
+    return w
+end
+local function frameOf(h)
+    local w = handleFrame[h]
+    if not w or (WoW.combat and not w._protected) then error("Invalid frame handle", 3) end
+    return w
+end
+WoW.frameOf = function(h) return handleFrame[h] end
+
+-- One environment per protected frame (GetManagedEnvironment): its globals
+-- persist across that frame's snippets; `owner` is its handle, `control`
+-- the handle of the header running the snippet.
+local envs = setmetatable({}, { __mode = "k" })
+local function envOf(w)
+    if not w._protected then error("Invalid access of managed environments table (not protected)", 3) end
+    local e = envs[w]
+    if not e then
+        e = {}
+        e._G, e.owner = e, handleOf(w)
+        envs[w] = e
+    end
+    return e
+end
+WoW.secureEnvironment = envOf
+
+-- Run a snippet as CallRestrictedClosure does: body checked, compiled with
+-- the signature's names as parameters, run in env with the restricted scope
+-- behind it.
+local function runSnippet(env, control, signature, body, ...)
+    if type(body) ~= "string" then return end
+    if body:match("function") then error("The function keyword is not permitted", 3) end
+    if body:match("[{}]") then error("Direct table creation is not permitted", 3) end
+    local def, err = loadstring("return function (" .. signature .. ") " .. body .. "\nend", "snippet")
+    if not def then error(err, 3) end
+    local fn = def()
+    local controlHandle = control and handleOf(control)
+    setfenv(fn, setmetatable({}, {
+        __index = function(_, k)
+            local v = env[k]
+            if v == nil then v = WoW.SECURE_SCOPE[k] end
+            if v == nil and k == "control" then return controlHandle end
+            return v
+        end,
+        __newindex = env,
+    }))
+    return fn(...)
+end
+
+-- Handle methods (RestrictedFrames.lua). Changes are secure: allowed in
+-- combat on protected frames, never recorded in WoW.blocked.
+function HANDLE:GetName() return anyFrameOf(self)._name end
+function HANDLE:GetObjectType() return anyFrameOf(self)._type end
+function HANDLE:IsObjectType(t) return anyFrameOf(self)._type == t end
+function HANDLE:GetAttribute(k) local w = frameOf(self); return w._attrs and w._attrs[k] end
+function HANDLE:SetAttribute(k, v)
+    local w = frameOf(self)
+    w._attrs = w._attrs or {}
+    w._attrs[k] = v
+end
+function HANDLE:Show() WoW.setShown(frameOf(self), true) end
+function HANDLE:Hide() WoW.setShown(frameOf(self), false) end
+function HANDLE:IsShown() return frameOf(self)._shown end
+function HANDLE:IsVisible() return Methods.IsVisible(frameOf(self)) end
+function HANDLE:IsProtected()
+    local p = anyFrameOf(self)._protected == true
+    return p, p
+end
+function HANDLE:GetParent() return handleOf(frameOf(self)._parent) end
+function HANDLE:ClearAllPoints() frameOf(self)._points = {} end
+function HANDLE:SetPoint(point, rel, relPoint, x, y)
+    if type(rel) == "userdata" then rel = frameOf(rel) end
+    table.insert(frameOf(self)._points, { point, rel, relPoint, x, y })
+end
+function HANDLE:GetWidth() return frameOf(self)._width end
+function HANDLE:GetHeight() return frameOf(self)._height end
+function HANDLE:SetWidth(v) frameOf(self)._width = v end
+function HANDLE:SetHeight(v) frameOf(self)._height = v end
+-- The cursor as a fraction of the frame's rect, nil outside it
+-- (RestrictedFrames.lua:307): GetCursorPosition() over the effective scale,
+-- less the rect's left and bottom. The rect: _left / _bottom (0 unset) and
+-- the frame's size; the effective scale: the stub's GetEffectiveScale, else 1.
+function HANDLE:GetMousePosition()
+    local w = frameOf(self)
+    local width, height = w._width, w._height
+    if not width or not height or width == 0 or height == 0 then return nil end
+    local e = Methods.GetEffectiveScale and Methods.GetEffectiveScale(w) or 1
+    local x, y = GetCursorPosition()
+    x, y = x / e - (w._left or 0), y / e - (w._bottom or 0)
+    if x < 0 or x > width or y < 0 or y > height then return nil end
+    return x / width, y / height
+end
+function HANDLE:GetFrameRef(label)
+    if type(label) ~= "string" then return nil end
+    local w = frameOf(self)
+    local v = w._attrs and w._attrs["frameref-" .. label]
+    if handleFrame[v] then return v end
+    return nil
+end
+-- A snippet stored in an attribute, run with this frame as self, in its own
+-- environment, with the caller's handle as control.
+function HANDLE:RunAttribute(attr, ...)
+    local w = frameOf(self)
+    if type(attr) ~= "string" then error("Invalid snippet attribute", 2) end
+    local body = w._attrs and w._attrs[attr]
+    if type(body) ~= "string" then error("Invalid snippet body", 2) end
+    return runSnippet(envOf(w), w, "self,...", body, self, ...)
+end
+-- Override bindings owned by the frame (SetOverrideBindingClick's), in
+-- WoW.overrideBindings[key] = { owner, name, button, priority }.
+function HANDLE:SetBindingClick(priority, key, name, button)
+    if type(name) == "userdata" and handleFrame[name] then name = handleFrame[name]._name end
+    if type(name) ~= "string" or name:match(":") then error("Invalid click target name", 2) end
+    if button ~= nil and type(button) ~= "string" then error("Invalid button name", 2) end
+    WoW.overrideBindings[key] = { owner = frameOf(self), name = name, button = button, priority = priority }
+end
+function HANDLE:ClearBinding(key)
+    local b = WoW.overrideBindings[key]
+    if b and b.owner == frameOf(self) then WoW.overrideBindings[key] = nil end
+end
+function HANDLE:ClearBindings()
+    local w = frameOf(self)
+    for key, b in pairs(WoW.overrideBindings) do
+        if b.owner == w then WoW.overrideBindings[key] = nil end
+    end
+end
+
+-- The SecureHandler* API goes through a protected frame of Blizzard's
+-- (SecureHandlersUpdateFrame, a SecureFrameTemplate) by SetAttribute: from
+-- addon code in combat that's refused, so these do nothing then and record
+-- the refusal (read in the source, not measured).
+local function apiRefused(what)
+    if WoW.combat then
+        table.insert(WoW.blocked, "SecureHandlersUpdateFrame:SetAttribute (" .. what .. ")")
+        return true
+    end
+end
+
+function SecureHandlerSetFrameRef(frame, label, refFrame)
+    if type(frame) ~= "table" then error("Invalid frame", 2) end
+    if type(label) ~= "string" then error("Invalid body", 2) end
+    if type(refFrame) ~= "table" then error("Invalid reference frame", 2) end
+    if apiRefused("SecureHandlerSetFrameRef") then return end
+    frame._attrs = frame._attrs or {}
+    frame._attrs["frameref-" .. label] = handleOf(refFrame)
+end
+
+function SecureHandlerExecute(frame, body)
+    if type(frame) ~= "table" then error("Invalid header frame", 2) end
+    if not frame._protected then error("Header frame must be explicitly protected", 2) end
+    if type(body) ~= "string" then error("Invalid body", 2) end
+    if apiRefused("SecureHandlerExecute") then return end
+    runSnippet(envOf(frame), frame, "self", body, handleOf(frame))
+end
+
+-- Wrapped_Click (SecureHandlers.lua:272): the header's pre snippet runs
+-- (when the frame is eligible: out of combat, or protected); false cancels
+-- the click, a string replaces the button, a second value is the message.
+-- Then the script that was there runs, then the post snippet when there's a
+-- message.
+local function wrappedClick(wrap, self, button, down, ...)
+    local message, newbutton
+    if not WoW.combat or self._protected then
+        newbutton, message = runSnippet(envOf(wrap.header), wrap.header, "self,button,down", wrap.pre,
+                                        handleOf(self), button, down)
+        if newbutton == false then return end
+        if newbutton then button = tostring(newbutton) end
+    end
+    if wrap.old then wrap.old(self, button, down, ...) end
+    if wrap.post and message ~= nil then
+        runSnippet(envOf(wrap.header), wrap.header, "self,message,button,down", wrap.post,
+                   handleOf(self), message, button, down)
+    end
+end
+
+local wraps = setmetatable({}, { __mode = "k" })   -- wrapper function -> its wrap
+function SecureHandlerWrapScript(frame, script, header, preBody, postBody)
+    if type(frame) ~= "table" then error("Invalid frame", 2) end
+    if type(script) ~= "string" then error("Invalid script id", 2) end
+    if script ~= "OnClick" then error("WowTestKit wraps OnClick only (#20): " .. script, 2) end
+    if type(header) ~= "table" or not header._protected then error("Header frame must be explicitly protected", 2) end
+    if type(preBody) ~= "string" then error("Invalid pre-handler body", 2) end
+    if postBody ~= nil and type(postBody) ~= "string" then error("Invalid post-handler body", 2) end
+    if apiRefused("SecureHandlerWrapScript") then return end
+    local wrap = { header = header, pre = preBody, post = postBody, old = frame._scripts[script] }
+    local fn = function(self, ...) return wrappedClick(wrap, self, ...) end
+    wraps[fn] = wrap
+    frame._scripts[script] = fn
+end
+
+-- Takes off the outermost wrap and returns its header and snippets.
+function SecureHandlerUnwrapScript(frame, script)
+    if type(frame) ~= "table" then error("Invalid frame", 2) end
+    if type(script) ~= "string" then error("Invalid script id", 2) end
+    local wrap = wraps[frame._scripts[script]]
+    if not wrap then return end
+    if apiRefused("SecureHandlerUnwrapScript") then return end
+    frame._scripts[script] = wrap.old
+    return wrap.header, wrap.pre, wrap.post
+end
+
+-- The secure action button's own OnClick (SecureActionButton_OnClick): it
+-- acts only on the edge where down == useOnKeyDown (the attribute, else the
+-- ActionButtonUseKeyDown CVar: WoW.useKeyDown). Measured on Forever, so one
+-- click uses an item once (Apotheca AGENTS.md, "Secure buttons register both
+-- mouse edges"). What it did goes to WoW.secureActions. Returns whether it
+-- acted.
+function WoW.secureActionClick(self, button, down)
+    local attrs = self._attrs or {}
+    local onDown = attrs.useOnKeyDown
+    if onDown == nil then onDown = WoW.useKeyDown end
+    if (down and true or false) ~= (onDown and true or false) then return false end
+    table.insert(WoW.secureActions, {
+        button = self._name, mouse = button, type = attrs.type, item = attrs.item, spell = attrs.spell,
+        macro = attrs.macro, macrotext = attrs.macrotext, unit = attrs.unit,
+        targetBag = attrs["target-bag"], targetSlot = attrs["target-slot"],
+    })
+    return true
+end
+
+-- One edge of a click on a button, as the client runs it: PreClick, OnClick
+-- (a wrap's snippets and the secure action inside it), PostClick. A disabled
+-- button doesn't click. Button:Click(button, down) does the same.
+function WoW.click(b, button, down)
+    button, down = button or "LeftButton", down and true or false
+    if b._disabled then return end
+    if b._scripts.PreClick then b._scripts.PreClick(b, button, down) end
+    if b._scripts.OnClick then b._scripts.OnClick(b, button, down) end
+    if b._scripts.PostClick then b._scripts.PostClick(b, button, down) end
+end
+function Methods.Click(b, button, down) WoW.click(b, button, down) end
+
+-- A key on an override binding clicks the button it names (CLICK
+-- <name>:<button>), hidden or not. Returns whether a binding took it.
+function WoW.pressKey(key, down)
+    local b = WoW.overrideBindings[key]
+    if not b then return false end
+    local target = rawget(_G, b.name)
+    if not target then error("no frame named " .. tostring(b.name) .. " for the binding of " .. key, 2) end
+    WoW.click(target, b.button or "LeftButton", down)
+    return true
+end
+
+-- The cursor, in screen pixels (GetCursorPosition). A stub may set it, or
+-- define GetCursorPosition itself.
+WoW.cursorX, WoW.cursorY = WoW.cursorX or 0, WoW.cursorY or 0
+function GetCursorPosition() return WoW.cursorX, WoW.cursorY end
+
 WoW.reset()
 
 --------------------------------------------------------------------------------
@@ -655,7 +983,9 @@ WoW.reset()
 -- in the build's globals list. FrameXML names (not in a function list) are
 -- listed apart, each with where it comes from.
 Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "InCombatLockdown",
-                     "strmatch", "hooksecurefunc", "C_Timer" }
+                     "strmatch", "hooksecurefunc", "C_Timer", "GetCursorPosition",
+                     "SecureHandlerSetFrameRef", "SecureHandlerExecute", "SecureHandlerWrapScript",
+                     "SecureHandlerUnwrapScript" }
 Kit.CORE_FRAMEXML = { UIParent = "FrameXML UIParent.xml; a widget type of its own in the dump" }
 
 -- allowNil: the names that may read as nil (the addon's own globals before
