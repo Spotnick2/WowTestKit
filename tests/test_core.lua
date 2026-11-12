@@ -1,6 +1,6 @@
 -- The stub core's mechanics, against the newest build's data.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 -- The core's client globals are the client's.
 Kit.checkCore()
@@ -11,6 +11,8 @@ check(issecretvalue(s), "a secret is secret")
 check(not pcall(function() return s .. "x" end), "concat on a secret throws")
 check(not pcall(function() return s + 1 end), "arithmetic on a secret throws")
 check(not pcall(tostring, s), "tostring on a secret throws")
+eq(WoW.secretBlocked, 3, "each touch a pcall caught is counted (test_secret_pcall covers it)")
+WoW.secretBlocked, WoW.secretBlockedFirst = 0, nil   -- on purpose here
 local plain = {}
 eq(WoW.MarkSecret(plain), plain, "MarkSecret returns the value")
 check(issecretvalue(plain), "a marked value is secret")
@@ -25,8 +27,9 @@ f:SetScript("OnEvent", function(_, e, a) got = e .. ":" .. tostring(a) end)
 WoW.fire("PLAYER_LOGIN", 1)
 eq(got, "PLAYER_LOGIN:1", "fire reaches the registered frame")
 check(WoW.methodsCalled["Frame:RegisterEvent"] and WoW.methodsCalled["Frame:SetScript"], "method calls are recorded")
-eq(f:SomethingUnstubbed(), nil, "an unimplemented method returns nil")
-check(WoW.methodsCalled["Frame:SomethingUnstubbed"], "and is recorded for the methods check")
+eq(f:SetClampedToScreen(true), nil, "a real method the core doesn't implement returns nil")
+check(WoW.methodsCalled["Frame:SetClampedToScreen"], "and is recorded for the methods check")
+eq(f.SomethingUnstubbed, nil, "a method the build lacks reads as nil (test_absent_methods covers it)")
 
 -- Templates and combat refusals.
 WoW.templates.KitSecureTemplate = function(w) w._protected = true end
