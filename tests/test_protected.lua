@@ -1,7 +1,7 @@
 -- A protected frame in combat refuses WoW.PROTECTED's methods and records
 -- each refusal in WoW.blocked (WowTestKit #12).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 WoW.templates.KitSecureTemplate = function(w) w._protected = true end
 local b = CreateFrame("Button", "KitSecure", UIParent, "KitSecureTemplate")

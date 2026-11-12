@@ -18,7 +18,8 @@
 if rawget(_G, "Kit") and rawget(Kit, "BUILD") then return Kit end
 
 Kit = {
-    API = 1,   -- bumped on a breaking change; Kit.load refuses an older consumer's api
+    API = 2,   -- bumped on a breaking change; Kit.load refuses an older consumer's api
+               -- (docs/MIGRATING.md: what each bump changes, and how to move)
     ROOT = (debug.getinfo(1, "S").source:match("^@(.*)[/\\][^/\\]*$") or "."):gsub("\\", "/"),
 }
 
@@ -40,8 +41,9 @@ function Kit.load(opts)
     assert(opts.build, "Kit.load needs { build = \"<build>\" } (tests/kit.pin's build)")
     local api = tonumber(opts.api) or 1
     if api ~= Kit.API then
-        error(("WowTestKit API %d, but this repo was written for API %d: bump tests/kit.pin "
-            .. "to a kit release for API %d, or migrate"):format(Kit.API, api, api), 0)
+        error(("WowTestKit API %d, but this repo was written for API %d: pin a kit commit for API %d, "
+            .. "or migrate (WowTestKit's docs/MIGRATING.md) and set api=%d in tests/kit.pin")
+            :format(Kit.API, api, api, Kit.API), 0)
     end
     Kit.BUILD, Kit.SHA = tostring(opts.build), opts.sha
     for _, file in ipairs({ "core/assert.lua", "core/toc.lua", "core/data.lua", "core/stubs.lua",
