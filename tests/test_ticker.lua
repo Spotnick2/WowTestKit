@@ -87,4 +87,17 @@ WoW.advance(1)
 eq(args, 0, "a C_Timer.After callback gets no argument")
 eq(#WoW.timers, 0, "and is dropped")
 
+-- A ticker-shaped record a stub made itself (GlassChat's own NewTicker:
+-- { s, fn, every }, no at or handle) runs once and is dropped (#34).
+WoW.reset()
+WoW.now = 0
+local own = 0
+table.insert(WoW.timers, { s = 1, fn = function() own = own + 1 end, every = 1 })
+WoW.flushTimers()
+eq(own, 1, "a stub's own ticker record runs under flushTimers")
+eq(#WoW.timers, 0, "once, and is dropped")
+table.insert(WoW.timers, { s = 1, fn = function() own = own + 1 end, every = 1 })
+WoW.advance(5)
+eq(own, 2, "under advance too, once")
+
 done("test_ticker")
