@@ -919,7 +919,16 @@ function HANDLE:GetName() return anyFrameOf(self)._name end
 function HANDLE:GetObjectType() return anyFrameOf(self)._type end
 function HANDLE:IsObjectType(t) return anyFrameOf(self)._type == t end
 function HANDLE:GetAttribute(k) local w = frameOf(self); return w._attrs and w._attrs[k] end
+-- RestrictedFrames.lua:522: a name starting with "_" is the frame's own
+-- (snippets, private state) and refused; a value is a string, number,
+-- boolean, nil or a frame handle, never a table (#43).
 function HANDLE:SetAttribute(k, v)
+    if type(k) ~= "string" or k:match("^_") then error("Invalid attribute name", 2) end
+    local tv = type(v)
+    if tv ~= "string" and tv ~= "number" and tv ~= "boolean" and tv ~= "nil"
+            and not (tv == "userdata" and handleFrame[v]) then
+        error("Invalid attribute value", 2)
+    end
     local w = frameOf(self)
     w._attrs = w._attrs or {}
     w._attrs[k] = v

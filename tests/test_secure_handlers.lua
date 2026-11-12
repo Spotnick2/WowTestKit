@@ -134,18 +134,35 @@ check(not pcall(SecureHandlerWrapScript, plain, "OnClick", CreateFrame("Frame"),
     "a header must be explicitly protected")
 check(not pcall(SecureHandlerWrapScript, button, "OnEnter", header, "x = 1"), "only OnClick is modelled, and says so")
 
--- SecureHandlerExecute, RunAttribute, newtable, control.
+-- SecureHandlerExecute, RunAttribute, newtable, control. A snippet in an
+-- attribute is set by addon code out of combat ("_" names aren't a snippet's).
+header:SetAttribute("_toggle", "toggled = (toggled or 0) + select('#', ...)")
 SecureHandlerExecute(header, [[
     list = newtable()
     table.insert(list, "a")
     tinsert(list, "b")
-    self:SetAttribute("_toggle", "toggled = (toggled or 0) + select('#', ...)")
     me = self:GetName()
 ]])
 eq(table.concat(env.list, ","), "a,b", "Execute runs in the header's environment, with the table helpers")
 eq(env.me, "KitHeader", "with self the header's handle")
 SecureHandlerExecute(header, [[ self:RunAttribute("_toggle", 1, 2, 3) ]])
 eq(env.toggled, 3, "RunAttribute runs the attribute's snippet with its arguments")
+
+-- What a snippet may set (RestrictedFrames.lua:522).
+check(not pcall(SecureHandlerExecute, header, [[ self:SetAttribute("_toggle", "x = 1") ]]),
+    "a snippet can't set an attribute named _...")
+check(not pcall(SecureHandlerExecute, header, [[ self:SetAttribute("data", newtable()) ]]),
+    "nor a table value")
+SecureHandlerExecute(header, [[
+    self:SetAttribute("count", 3)
+    self:SetAttribute("label", "x")
+    self:SetAttribute("on", true)
+    self:SetAttribute("target", owner:GetFrameRef("ring"))
+    self:SetAttribute("count", nil)
+]])
+check(header:GetAttribute("label") == "x" and header:GetAttribute("on") == true
+    and header:GetAttribute("count") == nil and type(header:GetAttribute("target")) == "userdata",
+    "strings, numbers, booleans, nil and frame handles are fine")
 
 -- Handles: points, GetMousePosition, bindings.
 ring._left, ring._bottom, ring._width, ring._height = 100, 100, 200, 100
