@@ -112,6 +112,7 @@ WoW.templates = {}
 function CreateFrame(ftype, name, parent, template)
     local w = newWidget(ftype, parent, name)
     w._template = template
+    w._frame = true   -- a frame, not a region (SetParent moves it between children)
     if ftype == "StatusBar" then w._min, w._max, w._value = 0, 1, 0 end
     if template then
         for t in template:gmatch("[^,%s]+") do
@@ -139,24 +140,43 @@ local function refused(w, what)
 end
 WoW.refused = refused
 
-function Methods.Show(w)
-    if refused(w, "Show") then return end
-    w._shown = true
-    if w._scripts.OnShow then w._scripts.OnShow(w) end
-end
-function Methods.Hide(w)
-    if refused(w, "Hide") then return end
-    local was = w._shown
-    w._shown = false
-    if was and w._scripts.OnHide then w._scripts.OnHide(w) end
-end
-function Methods.SetShown(w, v) if v then Methods.Show(w) else Methods.Hide(w) end end
-function Methods.IsShown(w) return w._shown end
-function Methods.IsVisible(w)
+-- Visibility follows the parent's (WowTestKit #21). OnShow / OnHide fire on
+-- the frame and on each shown descendant whose visibility changed, parents
+-- first, and only on a change: Show on a shown frame fires nothing, and a
+-- frame shown under a hidden ancestor gets OnShow when that ancestor shows.
+-- The walk follows CreateFrame's children (w._children, kept by SetParent).
+local function visible(w)
     local p = w
     while p do if not p._shown then return false end; p = p._parent end
     return true
 end
+local function fireDown(w, script)
+    if w._scripts[script] then w._scripts[script](w) end
+    for _, c in ipairs(w._children or {}) do
+        if c._shown then fireDown(c, script) end
+    end
+end
+-- Show or hide w with its scripts, without the combat refusal: what Show and
+-- Hide do once allowed, and what secure code calls (a snippet's handle).
+function WoW.setShown(w, shown)
+    shown = shown and true or false
+    local was = visible(w)
+    w._shown = shown
+    local now = visible(w)
+    if now and not was then fireDown(w, "OnShow")
+    elseif was and not now then fireDown(w, "OnHide") end
+end
+function Methods.Show(w)
+    if refused(w, "Show") then return end
+    WoW.setShown(w, true)
+end
+function Methods.Hide(w)
+    if refused(w, "Hide") then return end
+    WoW.setShown(w, false)
+end
+function Methods.SetShown(w, v) if v then Methods.Show(w) else Methods.Hide(w) end end
+function Methods.IsShown(w) return w._shown end
+function Methods.IsVisible(w) return visible(w) end
 function Methods.SetPoint(w, ...)
     if refused(w, "SetPoint") then return end
     table.insert(w._points, { ... })
@@ -184,7 +204,31 @@ function Methods.GetHeight(w) return w._height end
 function Methods.SetAlpha(w, a) if not w._gradient then w._alpha = a end end
 function Methods.GetAlpha(w) return w._alpha or 1 end
 function Methods.GetParent(w) return w._parent end
-function Methods.SetParent(w, p) w._parent = p end
+-- Reparenting moves the frame between its parents' children, so GetChildren
+-- and the OnShow / OnHide walk follow it. (Its OnShow / OnHide on a
+-- visibility change by reparenting isn't modelled.)
+local function moveIn(list, w, to)
+    if list then
+        for i, c in ipairs(list) do
+            if c == w then table.remove(list, i); break end
+        end
+    end
+    if to then table.insert(to, w) end
+end
+function Methods.SetParent(w, p)
+    local old = w._parent
+    if old == p then return end
+    w._parent = p
+    if w._frame then
+        -- A frame CreateFrame made: in its parent's children.
+        if p then p._children = p._children or {} end
+        moveIn(old and old._children, w, p and p._children)
+    elseif old and old._regions then
+        -- A texture or font string: in its parent's regions.
+        if p then p._regions = p._regions or {} end
+        moveIn(old._regions, w, p and p._regions)
+    end
+end
 function Methods.GetChildren(w) return unpack(w._children or {}) end
 function Methods.GetFrameLevel(w) return w._level end
 function Methods.SetFrameLevel(w, l) w._level = l end
