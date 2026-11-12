@@ -1,6 +1,6 @@
 -- WoW.tick: one rendered frame moves GetTime() by its elapsed (WowTestKit #9).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 WoW.now = 100
 local f = CreateFrame("Frame", nil, UIParent)
@@ -40,5 +40,15 @@ local before, t0 = #seen, GetTime()
 WoW.tick(1)
 eq(#seen, before, "a hidden frame's OnUpdate doesn't run")
 eq(GetTime(), t0 + 1, "the clock moves anyway")
+
+-- The change is API 2's: an API-1 consumer stops with the migrate error.
+local lua = arg[-1] or "lua"
+local cmd = '"' .. lua .. '" -e "dofile([[kit.lua]]) Kit.load({ build = [[70532]], api = 1 })" 2>&1'
+if package.config:sub(1, 1) == "\\" then cmd = '"' .. cmd .. '"' end
+local p = assert(io.popen(cmd))
+local out = p:read("*a")
+p:close()
+check(out:find("WowTestKit API 2, but this repo was written for API 1", 1, true)
+    and out:find("docs/MIGRATING.md", 1, true), "an api=1 consumer gets the migrate error, naming the guide\n" .. out)
 
 done("test_tick")

@@ -1,6 +1,6 @@
 -- One Kit.checkMethods case, run by tests/test_methods.lua as its own process.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local case = arg[1]
 local allow

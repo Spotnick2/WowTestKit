@@ -2,7 +2,7 @@
 -- The failing cases run as their own Lua process (check() counts toward the
 -- file it runs in), from tests/fixtures/methods_case.lua.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local f = CreateFrame("Frame", nil, UIParent)
 f:SetPoint("CENTER")
