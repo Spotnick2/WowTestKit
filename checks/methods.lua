@@ -26,8 +26,12 @@ function Kit.checkMethods(opts)
     local types = {}
     for pair in pairs(known) do types[pair:match("^(%a+):")] = true end
 
+    -- This client's calls, and those of the clients before a Kit.freshClient().
+    local all = {}
+    for name in pairs(Kit.earlierMethodsCalled or {}) do all[name] = true end
+    for name in pairs(WoW.methodsCalled) do all[name] = true end
     local list = {}
-    for name in pairs(WoW.methodsCalled) do list[#list + 1] = name end
+    for name in pairs(all) do list[#list + 1] = name end
     table.sort(list)
     check(#list > 0, "recorded the addon's widget method calls (" .. #list .. "): exercise it before checking")
 
