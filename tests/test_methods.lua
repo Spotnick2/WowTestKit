@@ -2,7 +2,7 @@
 -- The failing cases run as their own Lua process (check() counts toward the
 -- file it runs in), from tests/fixtures/methods_case.lua.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local f = CreateFrame("Frame", nil, UIParent)
 f:SetPoint("CENTER")
@@ -39,7 +39,9 @@ for _, c in ipairs({
     check(out:find("[1-9]%d* failed"), c[1] .. ": the case's file fails")
 end
 local ok = run("allowed")
-check(ok:find(" 0 failed"), "a mixin method allowed with a reason passes\n" .. ok)
+check(ok:find(" 0 failed"), "a mixin method allowed with Kit.allowMethods passes\n" .. ok)
+local late = run("allowedlate")
+check(late:find(" 0 failed"), "an implemented one allowed at the check passes\n" .. late)
 local own = run("subtype")
 check(own:find(" 0 failed"), "an animation subtype's own method passes (Alpha:SetFromAlpha)\n" .. own)
 

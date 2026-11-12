@@ -23,7 +23,7 @@ packaging or release scripts. Those stay in each addon.
    # WowTestKit for these tests: the commit, and the client build to test against.
    sha=<a WowTestKit commit, 40 hex>
    build=70532
-   api=1
+   api=2
    ```
 3. `tests/wow_stubs.lua` starts with `dofile("tests/kit.lua")`, takes `local Methods = WoW.Methods`,
    adds the addon's own client APIs (and may replace any `Methods` entry), and ends with

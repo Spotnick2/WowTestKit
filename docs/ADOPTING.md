@@ -52,7 +52,7 @@ Branch off `main`, from the repo's issue.
 **Pin.** Copy `bootstrap/kit.lua`, `bootstrap/kit.ps1` and `bootstrap/fetch_kit.sh` into
 `tests/` unchanged, and write `tests/kit.pin`: `sha=` the kit's current `main` commit (40 hex),
 `build=` the build the addon was last measured on if it records one (a `MEASURED_ON_BUILD`, say),
-otherwise the newest `data/forever-<build>/` here, and `api=1`.
+otherwise the newest `data/forever-<build>/` here, and `api=2` (the kit's `Kit.API`).
 
 **The stub.** `tests/wow_stubs.lua` starts with `dofile("tests/kit.lua")`, then
 `local Methods = WoW.Methods`, and ends with `Kit.strict({ ... })`. In between:
