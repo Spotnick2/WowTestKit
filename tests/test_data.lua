@@ -2,7 +2,7 @@
 -- dump is on this disk (the owner's machine, not CI), they are exactly what
 -- tools/gen_data.lua makes from it.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local FILES = { "widget-methods.txt", "functions.txt", "globals.txt", "events.txt" }
 local builds = Kit.builds()

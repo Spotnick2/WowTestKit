@@ -35,7 +35,7 @@ jobs:
         run: |
           c="$RUNNER_TEMP/consumer"
           mkdir -p "$c/tests"
-          printf 'sha=%s\nbuild=70532\napi=1\n' "$SHA" > "$c/tests/kit.pin"
+          printf 'sha=%s\nbuild=70532\napi=2\n' "$SHA" > "$c/tests/kit.pin"
           cp bootstrap/kit.lua bootstrap/fetch_kit.sh "$c/tests/"
           cp tests/fixtures/consumer_smoke.lua "$c/tests/test_smoke.lua"
           cd "$c"

@@ -571,9 +571,15 @@ function WoW.fireAllRegistered()
     for _, e in ipairs(list) do WoW.fire(e) end
 end
 
--- One rendered frame: OnUpdate on every visible frame.
+-- One rendered frame: the clock moves on by elapsed, then OnUpdate runs on
+-- every visible frame with it. On the client a frame's elapsed and GetTime()
+-- move together, so code that times something by GetTime() inside its
+-- OnUpdate sees time pass (WowTestKit #9). Timers stay with WoW.advance and
+-- WoW.flushTimers: a test that wants both calls WoW.advance(dt), then
+-- WoW.tick(0).
 function WoW.tick(elapsed)
     elapsed = elapsed or 0.02
+    WoW.now = (WoW.now or 0) + elapsed
     local list = {}
     for _, w in ipairs(WoW.frames) do list[#list + 1] = w end
     for _, w in ipairs(list) do

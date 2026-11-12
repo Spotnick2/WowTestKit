@@ -1,7 +1,7 @@
 -- One fresh-client case, run by tests/test_fresh_client.lua as its own process:
 -- something goes wrong before the reload, and the file must still fail.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 Kit.strict({})
 
 local case = arg[1]
@@ -17,7 +17,7 @@ elseif case == "methodbefore" then
 end
 
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 Kit.strict({})
 CreateFrame("Frame"):Show()
 check(true, "after the reload")

@@ -1,6 +1,6 @@
 -- The stub core's mechanics, against the newest build's data.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 -- The core's client globals are the client's.
 Kit.checkCore()
