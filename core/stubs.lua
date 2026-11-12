@@ -75,10 +75,21 @@ end
 -- string, which Lua 5.1 refuses before any metamethod runs ("attempt to
 -- compare number with userdata"). A test that touches a secret on purpose
 -- reads the count, then sets it back to 0; WoW.rawpcall doesn't count.
+-- Lua's compare error names no operand, and other userdata (a secure
+-- handle) gives the same message (#47). It counts only while a secret proxy
+-- is alive in the test; a handle compared while a secret lives is still
+-- counted, a limit Lua 5.1 leaves no way around.
+local function secretProxyAlive()
+    for v in pairs(secrets) do
+        if type(v) == "userdata" then return true end
+    end
+    return false
+end
 local function isSecretError(err)
-    return type(err) == "string" and (err:find("secret value touched in Lua", 1, true) ~= nil
-        or err:find("attempt to compare %a+ with userdata") ~= nil
-        or err:find("attempt to compare userdata with %a+") ~= nil)
+    if type(err) ~= "string" then return false end
+    if err:find("secret value touched in Lua", 1, true) then return true end
+    return (err:find("attempt to compare %a+ with userdata") ~= nil
+        or err:find("attempt to compare userdata with %a+") ~= nil) and secretProxyAlive()
 end
 local function countSecret(err)
     if isSecretError(err) then
