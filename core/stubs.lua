@@ -82,6 +82,25 @@ local function record(w, name)
     WoW.methodsCalled[w._type .. ":" .. name] = true
 end
 
+-- The methods a protected frame refuses in combat (WowTestKit #12). The
+-- refusal is silent on the client (the call does nothing and raises
+-- ADDON_ACTION_BLOCKED): here it's recorded in WoW.blocked as "name:Method".
+-- Checked when the call is made, before any implementation, so a consumer
+-- that replaces one of these Methods keeps the refusal. A consumer adds the
+-- ones it relies on (SetParent, SetScale...): WoW.PROTECTED.SetScale = true.
+-- Sources: porting guide, "Secure click-casting works" (measured on 69913:
+-- SetAttribute does nothing; a frame parenting secure buttons refuses to
+-- hide, move, re-anchor, unclamp or stop a drag) and the action bar section
+-- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar). Resizing
+-- is the client's standard lockdown, not measured on Forever separately.
+WoW.PROTECTED = {
+    Show = true, Hide = true, SetShown = true,
+    SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
+    SetAttribute = true, RegisterForClicks = true,
+    SetSize = true, SetWidth = true, SetHeight = true,
+    StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
+}
+
 -- Any capitalised key is a method: recorded, then its implementation if one
 -- exists, else nil. Lower-case keys are fields and read as nil.
 local widgetMT = {
@@ -89,6 +108,7 @@ local widgetMT = {
         if type(k) ~= "string" or not k:match("^%u") then return nil end
         return function(self, ...)
             record(self, k)
+            if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
             local impl = Methods[k]
             if impl then return impl(self, ...) end
             return nil
@@ -128,9 +148,10 @@ function CreateFrame(ftype, name, parent, template)
     return w
 end
 
--- A protected frame (w._protected, set by a secure template) refuses to show,
--- hide or move in combat, as the client does: nothing happens and the call is
--- recorded in WoW.blocked (porting guide, "Secure click-casting works").
+-- A protected frame (w._protected, set by a secure template) refuses the
+-- WoW.PROTECTED methods in combat, as the client does: nothing happens and
+-- the call is recorded in WoW.blocked. The dispatch above checks it; the
+-- methods below also call it, for a direct Methods.Show(w) from a stub.
 local function refused(w, what)
     if WoW.combat and w._protected then
         table.insert(WoW.blocked, (w._name or w._type) .. ":" .. what)
@@ -199,9 +220,10 @@ function Methods.GetDebugName(w) return w._name or ("<" .. w._type .. ">") end
 function Methods.GetObjectType(w) return w._type end
 function Methods.IsForbidden(w) return false end
 
--- Attributes: recorded; refused on a protected frame in combat, as the client does.
+-- Attributes: recorded; refused (and recorded in WoW.blocked) on a protected
+-- frame in combat, as the client does.
 function Methods.SetAttribute(w, k, v)
-    if WoW.combat and w._protected then return end
+    if refused(w, "SetAttribute") then return end
     w._attrs = w._attrs or {}
     w._attrs[k] = v
 end
@@ -336,7 +358,15 @@ function Methods.SetValue(b, v)
     b._value = v
     if b._type == "Slider" and v ~= old and b._scripts.OnValueChanged then b._scripts.OnValueChanged(b, v, false) end
 end
-function Methods.SetStatusBarColor(b, r, g, bl, a) b._color = { r, g, bl, a } end
+-- The bar's colour is its fill texture's vertex colour, and setting it
+-- replaces a gradient painted on the fill (measured on 70450, LibGlass#64:
+-- GetVertexColor reads the new colour, the gradient's stripes are gone). With
+-- SetAlpha ignored on a gradient (above), this decides a repainted bar's
+-- opacity.
+function Methods.SetStatusBarColor(b, r, g, bl, a)
+    b._color = { r, g, bl, a }
+    if b._fill then b._fill._gradient, b._fill._vertex = nil, { r, g, bl, a } end
+end
 function Methods.SetStatusBarTexture(b, file)
     b._fill = b._fill or newWidget("Texture", b)
     b._fill._file = file
@@ -415,21 +445,53 @@ end
 -- - WoW.advance(dt): a clock. WoW.now moves on by dt and the timers due by
 --   then run in the order they fall due; a timer scheduled inside one counts
 --   from the new now, so step a second at a time.
--- A ticker is recorded once, like a timer (it doesn't repeat here).
+--
+-- A ticker repeats, as on the client (WowTestKit #18): it stays in
+-- WoW.timers after it fires, until cancelled or its iterations are used up.
+-- Its handle has Cancel and IsCancelled, and the callback gets the handle
+-- (UITimerDocumentation: NewTicker's callback is a TickerCallback(cb)).
+-- - advance re-arms it at at + every, so a dt spanning several periods
+--   fires it once per period (a 0-second ticker once per advance);
+-- - flushTimers runs it once and re-arms it from now, so flushTimers() again
+--   runs it again: a loop flushing until WoW.timers is empty never ends
+--   while a ticker lives.
+-- Whether IsCancelled reads true after the last iteration is unmeasured:
+-- here it reads false unless Cancel was called.
 C_Timer = {}
 function C_Timer.After(s, fn) table.insert(WoW.timers, { s = s, fn = fn, at = (WoW.now or 0) + s }) end
-function C_Timer.NewTicker(s, fn)
-    local t = { s = s, fn = fn, every = s, at = (WoW.now or 0) + s }
+function C_Timer.NewTicker(s, fn, iterations)
+    local t = { s = s, fn = fn, every = s, at = (WoW.now or 0) + s, iterations = iterations, fired = 0 }
+    t.handle = {
+        Cancel = function() t.cancelled = true end,
+        IsCancelled = function() return t.cancelled == true end,
+    }
     table.insert(WoW.timers, t)
-    return { Cancel = function() t.cancelled = true end }
+    return t.handle
 end
+
+-- Runs one due timer or ticker. A ticker with iterations left goes back in
+-- WoW.timers, re-armed at nextAt, before its callback runs (so a Cancel from
+-- inside the callback holds).
+local function fireTimer(t, nextAt)
+    if t.cancelled then return end
+    if not t.every then return t.fn() end
+    t.fired = t.fired + 1
+    if not (t.iterations and t.fired >= t.iterations) then
+        t.at = nextAt
+        table.insert(WoW.timers, t)
+    end
+    t.fn(t.handle)
+end
+
 function WoW.flushTimers(upTo)
     local run, keep = {}, {}
     for _, t in ipairs(WoW.timers) do
-        if upTo == nil or t.s <= upTo then run[#run + 1] = t else keep[#keep + 1] = t end
+        if t.cancelled then -- dropped
+        elseif upTo == nil or t.s <= upTo then run[#run + 1] = t else keep[#keep + 1] = t end
     end
     WoW.timers = keep
-    for _, t in ipairs(run) do if not t.cancelled then t.fn() end end
+    local now = WoW.now or 0
+    for _, t in ipairs(run) do fireTimer(t, now + (t.every or 0)) end
 end
 function WoW.advance(dt)
     WoW.now = (WoW.now or 0) + dt
@@ -441,7 +503,9 @@ function WoW.advance(dt)
         end
         if not due then return end
         local t = table.remove(WoW.timers, due)
-        if not t.cancelled then t.fn() end   -- a cancelled ticker never fires
+        -- A 0-second ticker would fall due again at once: next advance.
+        local nextAt = t.every and t.every > 0 and at + t.every or WoW.now + 1e-9
+        fireTimer(t, nextAt)   -- a cancelled one never fires
     end
 end
 
