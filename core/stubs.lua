@@ -249,6 +249,9 @@ end
 local function newWidget(wtype, parent, name)
     local w = setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
                              _scripts = {}, _events = {}, _unitEvents = {},
+                             -- Lists from the start (WowTestKit #38), so ipairs(f._children)
+                             -- works on a frame with none.
+                             _children = {}, _regions = {},
                              _level = parent and parent._level and (parent._level + 1) or 1,
                              _width = 0, _height = 0, _name = name }, widgetMT(wtype))
     w._vis = visible(w)
@@ -274,7 +277,7 @@ function CreateFrame(ftype, name, parent, template)
     end
     table.insert(WoW.frames, w)
     if parent then
-        parent._children = parent._children or {}
+        parent._children = parent._children or {}   -- a stub's own parent table
         table.insert(parent._children, w)
     end
     if name then rawset(_G, name, w) end
@@ -370,13 +373,12 @@ function Methods.GetParent(w) return w._parent end
 -- Reparenting moves the frame between its parents' children, so GetChildren
 -- and the OnShow / OnHide walk follow it. (Its OnShow / OnHide on a
 -- visibility change by reparenting isn't modelled.)
-local function moveIn(list, w, to)
-    if list then
-        for i, c in ipairs(list) do
-            if c == w then table.remove(list, i); break end
-        end
+-- Takes w out of list; true if it was there.
+local function takeOut(list, w)
+    for i, c in ipairs(list or {}) do
+        if c == w then table.remove(list, i); return true end
     end
-    if to then table.insert(to, w) end
+    return false
 end
 function Methods.SetParent(w, p)
     local old = w._parent
@@ -385,12 +387,13 @@ function Methods.SetParent(w, p)
     resync(w)
     if w._frame then
         -- A frame CreateFrame made: in its parent's children.
-        if p then p._children = p._children or {} end
-        moveIn(old and old._children, w, p and p._children)
-    elseif old and old._regions then
-        -- A texture or font string: in its parent's regions.
-        if p then p._regions = p._regions or {} end
-        moveIn(old._regions, w, p and p._regions)
+        if old then takeOut(old._children, w) end
+        if p then p._children = p._children or {}; table.insert(p._children, w) end
+    elseif old and takeOut(old._regions, w) then
+        -- A texture or font string made by CreateTexture / CreateFontString:
+        -- in its parent's regions. Another widget (a status bar's fill) was
+        -- in no list, and joins none.
+        if p then p._regions = p._regions or {}; table.insert(p._regions, w) end
     end
 end
 function Methods.GetChildren(w) return unpack(w._children or {}) end
@@ -462,7 +465,7 @@ end
 -- Regions: in creation order for GetRegions (w._regions), as the client lists
 -- a frame's textures and font strings; a named one is also a global.
 local function addRegion(w, r)
-    w._regions = w._regions or {}
+    w._regions = w._regions or {}   -- a stub's own widget (WoW.addRegion)
     table.insert(w._regions, r)
     return r
 end
