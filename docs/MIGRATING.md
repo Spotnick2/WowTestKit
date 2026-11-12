@@ -27,3 +27,23 @@ the client. Before, only `WoW.advance` moved the clock. Timers are still run by 
 - **Code timed by `GetTime()` inside OnUpdate now sees time pass under ticks.** A test that
   relied on it standing still (GlassChat's `test_idle`, Apotheca's `test_xpfood`, measured in
   the run against the kit) needs its expectations moved to the client's behaviour.
+
+### A method the build lacks reads as `nil` (WowTestKit #22)
+
+A widget's capitalised key used to answer every name with a recording function. Now it answers
+only when the widget's type has that method on the pinned build, when the stub has a `Methods`
+implementation for it, or when it's allowed with `Kit.allowMethods`. Anything else reads as `nil`,
+as on the client, so `if type(f.GetModel) == "function"` takes the client's branch and a call
+fails where it's made ("attempt to call method 'X' (a nil value)").
+
+- **A Blizzard mixin method allowed only at the check moves to `Kit.allowMethods`, before the
+  addon loads.** `Kit.checkMethods({ allow = { ["GameTooltip:SetItemByID"] = "…" } })` with no
+  `Methods.SetItemByID` in the stub let the call through before; now the call fails first. Put
+  the pair in `Kit.allowMethods({ ["GameTooltip:SetItemByID"] = "<the Blizzard file>" })` in the
+  stub (`Kit.checkMethods` accepts those too), or give the stub an implementation. Measured in the
+  run against the kit: Apotheca (`GameTooltip:SetItemByID`, test_frames and test_methods) and
+  GlassActionBars (`GameTooltip:SetSpellByID`, test_feedpet). GlassPearls' test_books_compass
+  loses one check ("its tooltip follows"), not yet traced to its method. AltStable, GlassMail
+  and NodeRadar allow pairs the same way: check each.
+- **A workaround that faked an absent method goes.** AltStable's `-- WowTestKit #22:`
+  `rawset(f, "GetModel", false)` is now the kit's own behaviour.
