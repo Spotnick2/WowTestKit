@@ -2,7 +2,7 @@
 -- done() fails on one (WowTestKit #13). The failing case runs as its own Lua
 -- process (check() counts toward the file it runs in).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local s = WoW.Secret("UnitHealth")
 eq(WoW.secretBlocked, 0, "nothing counted at the start")
@@ -54,7 +54,7 @@ local windows = package.config:sub(1, 1) == "\\"
 local case = os.tmpname()
 if windows then case = (os.getenv("TEMP") or ".") .. "\\wowtestkit-" .. case:gsub("[\\/.]", "") .. ".lua" end
 local f = assert(io.open(case, "w"))
-f:write('dofile("kit.lua")\nKit.load({ build = "70532" })\n',
+f:write('dofile("kit.lua")\nKit.load({ build = "70532", api = Kit.API })\n',
         'local s = WoW.Secret("UnitPower")\n',
         'pcall(string.format, "%s", s)\n',
         'done("secret_case")\n')
