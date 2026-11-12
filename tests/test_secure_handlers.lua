@@ -105,7 +105,31 @@ eq(env.plainRuns, 1, "the unwrapped snippet no longer runs")
 -- What a snippet may not do.
 check(not pcall(SecureHandlerExecute, header, "local f = function() end"), "the function keyword is refused")
 check(not pcall(SecureHandlerExecute, header, "local t = {}"), "direct table creation is refused")
-check(not pcall(SecureHandlerExecute, header, "print('x')"), "an insecure global (print) isn't there")
+check(not pcall(SecureHandlerExecute, header, "CreateFrame('Frame')"), "an insecure global (CreateFrame) isn't there")
+SecureHandlerExecute(header, "print('from a snippet')")
+eq(WoW.chat[#WoW.chat], "from a snippet", "print is (ENV.print, RestrictedEnvironment.lua:237)")
+
+-- In combat a handle reaches only protected frames (GetHandleFrame).
+local loose = CreateFrame("Frame", "KitLoose", UIParent)
+SecureHandlerSetFrameRef(header, "loose", loose)
+local guarded = CreateFrame("Button", "KitGuarded", UIParent, "SecureActionButtonTemplate")
+SecureHandlerWrapScript(guarded, "OnClick", header, [[
+    local l = owner:GetFrameRef("loose")
+    looseName = l:GetName()
+    if hideLoose then l:Hide() end
+]])
+WoW.combat = true
+WoW.click(guarded, "LeftButton", true)
+eq(env.looseName, "KitLoose", "GetName reaches an unprotected frame's handle in combat")
+env.hideLoose = true
+local okHide, errHide = pcall(WoW.click, guarded, "LeftButton", true)
+check(not okHide and tostring(errHide):find("Invalid frame handle", 1, true),
+    "Hide on an unprotected frame's handle in combat is an Invalid frame handle error")
+check(loose:IsShown(), "and the frame stays shown")
+WoW.combat = false
+WoW.click(guarded, "LeftButton", true)
+check(not loose:IsShown(), "out of combat the same snippet hides it")
+env.hideLoose = nil
 check(not pcall(SecureHandlerWrapScript, plain, "OnClick", CreateFrame("Frame"), "x = 1"),
     "a header must be explicitly protected")
 check(not pcall(SecureHandlerWrapScript, button, "OnEnter", header, "x = 1"), "only OnClick is modelled, and says so")

@@ -634,6 +634,8 @@ local function copy(t) local c = {}; for k, v in pairs(t) do c[k] = v end; retur
 WoW.SECURE_SCOPE = {
     math = math, string = string, select = select, tonumber = tonumber, tostring = tostring,
     type = type, pairs = pairs, ipairs = ipairs, next = next, unpack = unpack,
+    -- ENV.print (RestrictedEnvironment.lua:237): the global print, values scrubbed.
+    print = function(...) return print(...) end,
     newtable = function(...) return { ... } end, copytable = copy,
     wipe = function(t) for k in pairs(t) do t[k] = nil end; return t end,
     tinsert = table.insert, tremove = table.remove,
@@ -664,9 +666,18 @@ local function handleOf(w)
     return h
 end
 WoW.handleOf = handleOf
-local function frameOf(h)
+-- The frame behind a handle (RestrictedFrames.lua's GetHandleFrame): in
+-- combat only a protected frame's; an unprotected frame's handle is then an
+-- "Invalid frame handle" error, as in the client. GetName, GetObjectType,
+-- IsObjectType and IsProtected use the unguarded path (anyFrameOf).
+local function anyFrameOf(h)
     local w = handleFrame[h]
     if not w then error("Invalid frame handle", 3) end
+    return w
+end
+local function frameOf(h)
+    local w = handleFrame[h]
+    if not w or (WoW.combat and not w._protected) then error("Invalid frame handle", 3) end
     return w
 end
 WoW.frameOf = function(h) return handleFrame[h] end
@@ -712,7 +723,9 @@ end
 
 -- Handle methods (RestrictedFrames.lua). Changes are secure: allowed in
 -- combat on protected frames, never recorded in WoW.blocked.
-function HANDLE:GetName() return frameOf(self)._name end
+function HANDLE:GetName() return anyFrameOf(self)._name end
+function HANDLE:GetObjectType() return anyFrameOf(self)._type end
+function HANDLE:IsObjectType(t) return anyFrameOf(self)._type == t end
 function HANDLE:GetAttribute(k) local w = frameOf(self); return w._attrs and w._attrs[k] end
 function HANDLE:SetAttribute(k, v)
     local w = frameOf(self)
@@ -721,10 +734,12 @@ function HANDLE:SetAttribute(k, v)
 end
 function HANDLE:Show() WoW.setShown(frameOf(self), true) end
 function HANDLE:Hide() WoW.setShown(frameOf(self), false) end
-function HANDLE:SetShown(v) WoW.setShown(frameOf(self), v) end
 function HANDLE:IsShown() return frameOf(self)._shown end
 function HANDLE:IsVisible() return Methods.IsVisible(frameOf(self)) end
-function HANDLE:IsProtected() return frameOf(self)._protected == true, frameOf(self)._protected == true end
+function HANDLE:IsProtected()
+    local p = anyFrameOf(self)._protected == true
+    return p, p
+end
 function HANDLE:GetParent() return handleOf(frameOf(self)._parent) end
 function HANDLE:ClearAllPoints() frameOf(self)._points = {} end
 function HANDLE:SetPoint(point, rel, relPoint, x, y)
