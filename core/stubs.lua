@@ -163,11 +163,20 @@ local widgetMT = {
     end,
 }
 
+-- Whether w is visible: shown, and every ancestor shown.
+local function visible(w)
+    local p = w
+    while p do if not p._shown then return false end; p = p._parent end
+    return true
+end
+
 local function newWidget(wtype, parent, name)
-    return setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
-                          _scripts = {}, _events = {},
-                          _level = parent and parent._level and (parent._level + 1) or 1,
-                          _width = 0, _height = 0, _name = name }, widgetMT)
+    local w = setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
+                             _scripts = {}, _events = {},
+                             _level = parent and parent._level and (parent._level + 1) or 1,
+                             _width = 0, _height = 0, _name = name }, widgetMT)
+    w._vis = visible(w)
+    return w
 end
 WoW.newWidget = newWidget
 
@@ -179,6 +188,7 @@ WoW.templates = {}
 function CreateFrame(ftype, name, parent, template)
     local w = newWidget(ftype, parent, name)
     w._template = template
+    w._frame = true   -- a frame, not a region (SetParent moves it between children)
     if ftype == "StatusBar" then w._min, w._max, w._value = 0, 1, 0 end
     if template then
         for t in template:gmatch("[^,%s]+") do
@@ -192,6 +202,7 @@ function CreateFrame(ftype, name, parent, template)
         table.insert(parent._children, w)
     end
     if name then rawset(_G, name, w) end
+    w._vis = visible(w)   -- the visibility its OnShow / OnHide last reported (below)
     return w
 end
 
@@ -207,24 +218,50 @@ local function refused(w, what)
 end
 WoW.refused = refused
 
+-- Visibility follows the parent's (WowTestKit #21). OnShow / OnHide fire on
+-- the frame and on each descendant whose visibility changed, parents first,
+-- and only on a change: Show on a shown frame fires nothing, and a frame
+-- shown under a hidden ancestor gets OnShow when that ancestor shows.
+-- Each frame keeps the visibility its scripts last reported (w._vis). A
+-- show or hide walks the subtree and fires where the live visibility differs
+-- from it, so a script that shows or hides something while the walk runs
+-- (an OnShow that hides its own frame, an OnHide that hides a child) leaves
+-- each frame with one script per real change, never a stale one.
+-- The walk follows CreateFrame's children (w._children, kept by SetParent).
+local function settle(w)
+    local now = visible(w)
+    if now ~= w._vis then
+        w._vis = now
+        local script = w._scripts[now and "OnShow" or "OnHide"]
+        if script then script(w) end
+    end
+    local children = {}
+    for i, c in ipairs(w._children or {}) do children[i] = c end   -- a script may reparent
+    for _, c in ipairs(children) do settle(c) end
+end
+-- The same walk without the scripts: the subtree's visibility is taken as
+-- reported (reparenting, whose OnShow / OnHide isn't modelled).
+local function resync(w)
+    w._vis = visible(w)
+    for _, c in ipairs(w._children or {}) do resync(c) end
+end
+-- Show or hide w with its scripts, without the combat refusal: what Show and
+-- Hide do once allowed, and what secure code calls (a snippet's handle).
+function WoW.setShown(w, shown)
+    w._shown = shown and true or false
+    settle(w)
+end
 function Methods.Show(w)
     if refused(w, "Show") then return end
-    w._shown = true
-    if w._scripts.OnShow then w._scripts.OnShow(w) end
+    WoW.setShown(w, true)
 end
 function Methods.Hide(w)
     if refused(w, "Hide") then return end
-    local was = w._shown
-    w._shown = false
-    if was and w._scripts.OnHide then w._scripts.OnHide(w) end
+    WoW.setShown(w, false)
 end
 function Methods.SetShown(w, v) if v then Methods.Show(w) else Methods.Hide(w) end end
 function Methods.IsShown(w) return w._shown end
-function Methods.IsVisible(w)
-    local p = w
-    while p do if not p._shown then return false end; p = p._parent end
-    return true
-end
+function Methods.IsVisible(w) return visible(w) end
 function Methods.SetPoint(w, ...)
     if refused(w, "SetPoint") then return end
     table.insert(w._points, { ... })
@@ -252,7 +289,32 @@ function Methods.GetHeight(w) return w._height end
 function Methods.SetAlpha(w, a) if not w._gradient then w._alpha = a end end
 function Methods.GetAlpha(w) return w._alpha or 1 end
 function Methods.GetParent(w) return w._parent end
-function Methods.SetParent(w, p) w._parent = p end
+-- Reparenting moves the frame between its parents' children, so GetChildren
+-- and the OnShow / OnHide walk follow it. (Its OnShow / OnHide on a
+-- visibility change by reparenting isn't modelled.)
+local function moveIn(list, w, to)
+    if list then
+        for i, c in ipairs(list) do
+            if c == w then table.remove(list, i); break end
+        end
+    end
+    if to then table.insert(to, w) end
+end
+function Methods.SetParent(w, p)
+    local old = w._parent
+    if old == p then return end
+    w._parent = p
+    resync(w)
+    if w._frame then
+        -- A frame CreateFrame made: in its parent's children.
+        if p then p._children = p._children or {} end
+        moveIn(old and old._children, w, p and p._children)
+    elseif old and old._regions then
+        -- A texture or font string: in its parent's regions.
+        if p then p._regions = p._regions or {} end
+        moveIn(old._regions, w, p and p._regions)
+    end
+end
 function Methods.GetChildren(w) return unpack(w._children or {}) end
 function Methods.GetFrameLevel(w) return w._level end
 function Methods.SetFrameLevel(w, l) w._level = l end
