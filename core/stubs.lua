@@ -454,6 +454,14 @@ function Methods.GetName(w) return w._name end
 function Methods.GetDebugName(w) return w._name or ("<" .. w._type .. ">") end
 function Methods.GetObjectType(w) return w._type end
 function Methods.IsForbidden(w) return false end
+-- A frame's ID, 0 until set (WowTestKit #41): GetID returns a non-nilable
+-- number (SimpleFrameAPIDocumentation.lua), which Blizzard's code compares
+-- with 0 unchecked (SecureTemplates.lua:671, PartyFrame.lua:196); bag
+-- windows keep the bag and slot in it (ContainerFrame.lua:1845). SetID is
+-- a protected function there too; it isn't in WoW.PROTECTED, which holds
+-- what was measured: a test relying on the refusal adds it.
+function Methods.SetID(w, id) w._id = id end
+function Methods.GetID(w) return w._id or 0 end
 
 -- Attributes: recorded; refused (and recorded in WoW.blocked) on a protected
 -- frame in combat, as the client does.
@@ -1025,6 +1033,9 @@ function HANDLE:GetWidth() return frameOf(self)._width end
 function HANDLE:GetHeight() return frameOf(self)._height end
 function HANDLE:SetWidth(v) frameOf(self)._width = v end
 function HANDLE:SetHeight(v) frameOf(self)._height = v end
+-- RestrictedFrames.lua:108 and :410: a non-number id sets 0.
+function HANDLE:GetID() return Methods.GetID(frameOf(self)) end
+function HANDLE:SetID(id) frameOf(self)._id = tonumber(id) or 0 end
 -- The cursor as a fraction of the frame's rect, nil outside it
 -- (RestrictedFrames.lua:307): GetCursorPosition() over the effective scale,
 -- less the rect's left and bottom. The rect: _left / _bottom (0 unset) and
