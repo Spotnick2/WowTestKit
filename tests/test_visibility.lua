@@ -1,7 +1,7 @@
 -- OnShow / OnHide reach shown descendants when a parent's visibility changes,
 -- and fire only on a change (WowTestKit #21).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local log = {}
 local function watch(f, name)
