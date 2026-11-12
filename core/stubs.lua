@@ -116,11 +116,20 @@ local widgetMT = {
     end,
 }
 
+-- Whether w is visible: shown, and every ancestor shown.
+local function visible(w)
+    local p = w
+    while p do if not p._shown then return false end; p = p._parent end
+    return true
+end
+
 local function newWidget(wtype, parent, name)
-    return setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
-                          _scripts = {}, _events = {},
-                          _level = parent and parent._level and (parent._level + 1) or 1,
-                          _width = 0, _height = 0, _name = name }, widgetMT)
+    local w = setmetatable({ _type = wtype, _parent = parent, _shown = true, _points = {},
+                             _scripts = {}, _events = {},
+                             _level = parent and parent._level and (parent._level + 1) or 1,
+                             _width = 0, _height = 0, _name = name }, widgetMT)
+    w._vis = visible(w)
+    return w
 end
 WoW.newWidget = newWidget
 
@@ -146,6 +155,7 @@ function CreateFrame(ftype, name, parent, template)
         table.insert(parent._children, w)
     end
     if name then rawset(_G, name, w) end
+    w._vis = visible(w)   -- the visibility its OnShow / OnHide last reported (below)
     return w
 end
 
@@ -162,30 +172,37 @@ end
 WoW.refused = refused
 
 -- Visibility follows the parent's (WowTestKit #21). OnShow / OnHide fire on
--- the frame and on each shown descendant whose visibility changed, parents
--- first, and only on a change: Show on a shown frame fires nothing, and a
--- frame shown under a hidden ancestor gets OnShow when that ancestor shows.
+-- the frame and on each descendant whose visibility changed, parents first,
+-- and only on a change: Show on a shown frame fires nothing, and a frame
+-- shown under a hidden ancestor gets OnShow when that ancestor shows.
+-- Each frame keeps the visibility its scripts last reported (w._vis). A
+-- show or hide walks the subtree and fires where the live visibility differs
+-- from it, so a script that shows or hides something while the walk runs
+-- (an OnShow that hides its own frame, an OnHide that hides a child) leaves
+-- each frame with one script per real change, never a stale one.
 -- The walk follows CreateFrame's children (w._children, kept by SetParent).
-local function visible(w)
-    local p = w
-    while p do if not p._shown then return false end; p = p._parent end
-    return true
-end
-local function fireDown(w, script)
-    if w._scripts[script] then w._scripts[script](w) end
-    for _, c in ipairs(w._children or {}) do
-        if c._shown then fireDown(c, script) end
+local function settle(w)
+    local now = visible(w)
+    if now ~= w._vis then
+        w._vis = now
+        local script = w._scripts[now and "OnShow" or "OnHide"]
+        if script then script(w) end
     end
+    local children = {}
+    for i, c in ipairs(w._children or {}) do children[i] = c end   -- a script may reparent
+    for _, c in ipairs(children) do settle(c) end
+end
+-- The same walk without the scripts: the subtree's visibility is taken as
+-- reported (reparenting, whose OnShow / OnHide isn't modelled).
+local function resync(w)
+    w._vis = visible(w)
+    for _, c in ipairs(w._children or {}) do resync(c) end
 end
 -- Show or hide w with its scripts, without the combat refusal: what Show and
 -- Hide do once allowed, and what secure code calls (a snippet's handle).
 function WoW.setShown(w, shown)
-    shown = shown and true or false
-    local was = visible(w)
-    w._shown = shown
-    local now = visible(w)
-    if now and not was then fireDown(w, "OnShow")
-    elseif was and not now then fireDown(w, "OnHide") end
+    w._shown = shown and true or false
+    settle(w)
 end
 function Methods.Show(w)
     if refused(w, "Show") then return end
@@ -240,6 +257,7 @@ function Methods.SetParent(w, p)
     local old = w._parent
     if old == p then return end
     w._parent = p
+    resync(w)
     if w._frame then
         -- A frame CreateFrame made: in its parent's children.
         if p then p._children = p._children or {} end
