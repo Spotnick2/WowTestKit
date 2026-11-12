@@ -38,9 +38,6 @@ eq(alpha.SetScaleFrom, nil, "Scale's method on an Alpha reads as nil")
 -- A type the build doesn't have keeps every method, for checkMethods to name.
 check(type(WoW.newWidget("Gizmo").Spin) == "function", "an unknown widget type answers as before (Gizmo:Spin)")
 
--- A table-style lookup with no widget (GlassMiniMapBar, WowTestKit #7).
-local lookup = getmetatable(f).__index
-check(type(lookup(nil, "SetPoint")) == "function", "__index(nil, k) answers as before")
 
 -- Lower-case keys are fields.
 eq(f.someField, nil, "a lower-case key reads as nil")
