@@ -10,6 +10,9 @@ if case == "failbefore" then
 elseif case == "straybefore" then
     print("off|watch")
 elseif case == "methodbefore" then
+    -- Implemented by the stub, so it's callable (a method the build lacks
+    -- reads as nil otherwise, #22) and recorded for checkMethods.
+    WoW.Methods.NotARealMethod = function() end
     CreateFrame("Frame"):NotARealMethod()
 end
 
