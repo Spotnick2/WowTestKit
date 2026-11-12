@@ -5,6 +5,7 @@ dofile("kit.lua")
 Kit.load({ build = "70532" })
 
 local firstWoW, firstUI = WoW, UIParent
+WoW.secretBlocked = 2   -- as the core counts them once it does (#13)
 local f = CreateFrame("Frame", "KitFirstLogin", UIParent)
 Kit.strict({})
 f:SetPoint("CENTER")   -- the addon's call, after Kit.strict
@@ -20,6 +21,8 @@ eq(#WoW.frames, 0, "no frames from the first client")
 eq(rawget(_G, "KitNotDefinedYet"), nil, "strict globals are off until the stub calls Kit.strict")
 local ok = pcall(function() return KitNotDefinedYet end)
 check(ok, "so a read of an undefined global doesn't throw yet")
+eq(WoW.secretBlocked, 2, "a count of swallowed secret touches carries over")
+WoW.secretBlocked = 0   -- (set by hand above; nothing was touched)
 local p1 = Kit.counts()
 check(p1 >= p0 + 4, "the counts carried on (" .. p0 .. " before, " .. p1 .. " now)")
 check(not pcall(Kit.load, { build = "70790" }), "a second Kit.load for another build throws")

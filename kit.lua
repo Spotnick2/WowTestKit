@@ -55,15 +55,21 @@ end
 -- WoW, UIParent, CreateFrame..., strict globals off until the consumer's stub
 -- calls Kit.strict again). What carries over: the assertions and their
 -- counts (check / eq / done are loaded once), the stray "|" lines printed so
--- far (done() still fails on one), and the widget methods called so far
--- (Kit.checkMethods still checks them).
+-- far (done() still fails on one), the widget methods called so far
+-- (Kit.checkMethods still checks them), and the count of secret touches a
+-- pcall swallowed, when the core keeps one (done() still fails on it).
 function Kit.freshClient()
     assert(loaded, "Kit.freshClient: call Kit.load first")
     local strays, called = WoW.strays, WoW.methodsCalled
+    local secretBlocked, secretFirst = WoW.secretBlocked, WoW.secretBlockedFirst
     Kit.earlierMethodsCalled = Kit.earlierMethodsCalled or {}
     for pair in pairs(called) do Kit.earlierMethodsCalled[pair] = true end
     setmetatable(_G, nil)
     dofile(Kit.ROOT .. "/core/stubs.lua")
     for _, line in ipairs(strays) do table.insert(WoW.strays, line) end
+    if secretBlocked then
+        WoW.secretBlocked = (WoW.secretBlocked or 0) + secretBlocked
+        WoW.secretBlockedFirst = WoW.secretBlockedFirst or secretFirst
+    end
     return Kit
 end
