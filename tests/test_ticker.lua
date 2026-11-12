@@ -2,7 +2,7 @@
 -- ticker (WowTestKit #18; UITimerDocumentation, dump 70450:
 -- NewTicker(seconds, callback, optional iterations) -> cbObject).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 WoW.now = 0
 
