@@ -17,7 +17,9 @@ what a test sees, and name the consumers the run against the kit showed affected
 against your stub and tests.
 
 **`done()` adds a check to every test file** (no swallowed secret touch, below), so each file's
-"passed" count goes up by one. `Kit.checkCore()` checks the core's new globals too (`pcall`,
+"passed" count goes up by one. A file that ends with its own report instead (AltStable's
+`WoW.finish`) gains nothing, and has no swallowed-secret check: call `done()`, or check
+`WoW.secretBlocked` in that report. `Kit.checkCore()` checks the core's new globals too (`pcall`,
 `xpcall`, `GetCursorPosition`, the four `SecureHandler*`), so a file that calls it gains those
 checks.
 
@@ -52,9 +54,15 @@ fails where it's made ("attempt to call method 'X' (a nil value)").
   the pair in `Kit.allowMethods({ ["GameTooltip:SetItemByID"] = "<the Blizzard file>" })` in the
   stub (`Kit.checkMethods` accepts those too), or give the stub an implementation. Measured in the
   run against the kit: Apotheca (`GameTooltip:SetItemByID`, test_frames and test_methods) and
-  GlassActionBars (`GameTooltip:SetSpellByID`, test_feedpet). GlassPearls' test_books_compass
-  loses one check ("its tooltip follows"), not yet traced to its method. AltStable, GlassMail
+  GlassActionBars (`GameTooltip:SetSpellByID`, test_feedpet). AltStable, GlassMail, GlassPearls
   and NodeRadar allow pairs the same way: check each.
+- **GameTooltip's setters are Lua methods**: `SetHyperlink`, `SetItemByID`, `SetSpellByID`,
+  `SetBagItem`, `SetLootItem`, `SetInventoryItem` and the rest come from
+  `TooltipDataHandlerMixin` (`Blizzard_SharedXMLGame/Tooltip/TooltipDataHandler.lua`), which the
+  dump's widget walk doesn't see. Allow each one the addon calls. **A call inside a `pcall` fails
+  silently**: no test fails, the tooltip code just stops running. Measured: AltStable
+  (`SetHyperlink`, `SetInventoryItem`; `test_methods` records them no more) and GlassPearls
+  (`SetBagItem`, `SetLootItem`; `SetItemByID` is the method `test_books_compass` loses).
 - **A workaround that faked an absent method goes.** AltStable's `-- WowTestKit #22:`
   `rawset(f, "GetModel", false)` is now the kit's own behaviour.
 
@@ -127,6 +135,10 @@ SetHeight, StartMoving, StopMovingOrSizing, SetClampedToScreen) and records `nam
 - **A refused `SetShown` is recorded as `name:SetShown`**, no longer `name:Show` / `name:Hide`.
 - **A stub's own guards go** (Apotheca's and GlassUnitFrames' `-- WowTestKit #12:`). Add the
   methods you rely on beyond the list: `WoW.PROTECTED.SetScale = true`.
+- **Clearing `f._protected` no longer frees a frame that parents protected ones.** A helper that
+  acts as Blizzard that way (GlassActionBars' `WoW.blizzard`, `test_edges`: MultiBar5 is
+  protected through its buttons) replaces `WoW.refused` for the call instead. A stub's guard that
+  checks `w._protected` checks `WoW.isProtected(w)`.
 - **Apotheca's `WoW.strictLockdown`** (an error at the call) moves to a replacement of
   `WoW.refused`: the dispatch refuses before a `Methods` wrapper runs.
 
@@ -167,6 +179,11 @@ templates (`SecureActionButtonTemplate`'s OnClick is the secure action, `WoW.sec
 Loading the stub again in the same test file is a fresh client: the counts, strays, methods called
 and swallowed-secret count carry over; the old client's named widgets leave `_G`; the API is
 checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks go.
+
+- **A reload that replays the counts goes.** NodeRadar's `fresh()` reads `Kit.counts()`, reloads
+  and then calls `check(true)` once per earlier pass: the kit already carried them, so each
+  reload doubles the count (`test_locate`: 55 checks became 14,980,609, and `test_locate2` ran
+  out of memory).
 
 ### Smaller ones (WowTestKit #7, #38, #41)
 
