@@ -182,8 +182,8 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
 
 - **A reload that replays the counts goes.** NodeRadar's `fresh()` reads `Kit.counts()`, reloads
   and then calls `check(true)` once per earlier pass: the kit already carried them, so each
-  reload doubles the count (`test_locate`: 55 checks became 14,980,609, and `test_locate2` ran
-  out of memory).
+  reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
+  running when the machine ran low on memory).
 
 ### Smaller ones (WowTestKit #7, #38, #41)
 
