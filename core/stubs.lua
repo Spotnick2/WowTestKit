@@ -113,6 +113,16 @@ WoW.KNOWN_EVENTS = Kit.data("events")
 
 WoW.onReset = {}
 function WoW.reset()
+    -- The frames made so far are discarded: events and OnUpdate no longer
+    -- reach them, and neither does a parent's OnShow / OnHide walk (#46).
+    -- Each comes out of its parent's children, so a frame that survives the
+    -- reset (UIParent, a frame the stub built) doesn't carry it on.
+    for _, w in ipairs(WoW.frames or {}) do
+        local siblings = w._parent and w._parent._children
+        for i, c in ipairs(siblings or {}) do
+            if c == w then table.remove(siblings, i); break end
+        end
+    end
     WoW.frames = {}
     WoW.chat = {}
     WoW.methodsCalled = {}
