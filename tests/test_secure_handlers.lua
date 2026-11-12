@@ -178,6 +178,32 @@ eq(env.mx, 0.25, "GetMousePosition: the cursor's x as a fraction of the rect")
 eq(env.my, 0.75, "and its y")
 local pt = ring._points[1]
 check(pt[1] == "CENTER" and pt[2] == header and pt[5] == 10, "SetPoint takes another handle as the relative frame")
+
+-- SetPoint's rules (RestrictedFrames.lua:446, #44).
+local plainRef = CreateFrame("Frame", "KitPlainRef", UIParent)
+SecureHandlerSetFrameRef(header, "plainRef", plainRef)
+local okRel, errRel = pcall(SecureHandlerExecute, header,
+    [[ owner:GetFrameRef("ring"):SetPoint("CENTER", owner:GetFrameRef("plainRef"), "CENTER", 0, 0) ]])
+check(not okRel and tostring(errRel):find("Invalid relative frame handle", 1, true),
+    "an unprotected relative frame is refused, out of combat too")
+SecureHandlerExecute(header, [[
+    local r = owner:GetFrameRef("ring")
+    r:ClearAllPoints(); r:SetPoint("TOP", owner, 5, 6)
+    shifted = true
+]])
+pt = ring._points[1]
+check(pt[3] == "TOP" and pt[4] == 5 and pt[5] == 6, "relPoint left out: the offsets move up, relPoint is point")
+SecureHandlerExecute(header, [[ local r = owner:GetFrameRef("ring"); r:ClearAllPoints(); r:SetPoint("LEFT") ]])
+pt = ring._points[1]
+check(pt[2] == nil and pt[3] == "LEFT" and pt[4] == 0 and pt[5] == 0, "no relative frame: the screen, offsets 0")
+SecureHandlerExecute(header, [[ local r = owner:GetFrameRef("ring"); r:ClearAllPoints(); r:SetPoint("LEFT", "$parent") ]])
+eq(ring._points[1][2], UIParent, "$parent anchors to the frame's parent")
+WoW.cursorX, WoW.cursorY = 40, 30
+SecureHandlerExecute(header, [[ local r = owner:GetFrameRef("ring"); r:ClearAllPoints(); r:SetPoint("CENTER", "$cursor") ]])
+pt = ring._points[1]
+check(pt[2] == nil and pt[3] == "BOTTOMLEFT" and pt[4] == 40 and pt[5] == 30, "$cursor: the cursor as an offset from the bottom left")
+check(not pcall(SecureHandlerExecute, header, [[ owner:GetFrameRef("ring"):SetPoint("MIDDLE") ]]), "an unknown point is refused")
+check(not pcall(SecureHandlerExecute, header, [[ owner:GetFrameRef("ring"):SetPoint("TOP", "$nowhere") ]]), "an unknown relative id is refused")
 WoW.cursorX = 50
 SecureHandlerExecute(header, [[ out = owner:GetFrameRef("ring"):GetMousePosition() ]])
 eq(env.out, nil, "outside the rect it's nil")

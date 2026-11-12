@@ -943,9 +943,38 @@ function HANDLE:IsProtected()
 end
 function HANDLE:GetParent() return handleOf(frameOf(self)._parent) end
 function HANDLE:ClearAllPoints() frameOf(self)._points = {} end
+-- RestrictedFrames.lua:446 (#44): relPoint may be left out (the offsets
+-- move up) and defaults to point; the offsets default to 0. Both points are
+-- one of the nine anchor names. The relative frame is a handle to a
+-- PROTECTED frame, in or out of combat ("**MUST** be protected"), or nil /
+-- "$screen" (the screen), "$parent", or "$cursor" (the cursor, as an offset
+-- from the screen's bottom left).
+local SET_POINTS = { TOP = true, BOTTOM = true, LEFT = true, RIGHT = true, CENTER = true,
+                     TOPLEFT = true, BOTTOMLEFT = true, TOPRIGHT = true, BOTTOMRIGHT = true }
 function HANDLE:SetPoint(point, rel, relPoint, x, y)
-    if type(rel) == "userdata" then rel = frameOf(rel) end
-    table.insert(frameOf(self)._points, { point, rel, relPoint, x, y })
+    if type(relPoint) == "number" then relPoint, x, y = nil, relPoint, x end
+    if relPoint == nil then relPoint = point end
+    if x == nil and y == nil then x, y = 0, 0 else x, y = tonumber(x), tonumber(y) end
+    if not SET_POINTS[point] then error("Invalid point '" .. tostring(point) .. "'", 2) end
+    if not SET_POINTS[relPoint] then error("Invalid relative point '" .. tostring(relPoint) .. "'", 2) end
+    if not (x and y) then error("Invalid offset", 2) end
+    local w = frameOf(self)
+    local relFrame
+    if type(rel) == "userdata" then
+        relFrame = handleFrame[rel]
+        if not relFrame or not relFrame._protected then error("Invalid relative frame handle", 2) end
+    elseif rel == nil or rel == "$screen" then
+        relFrame = nil
+    elseif rel == "$cursor" then
+        local e = Methods.GetEffectiveScale and Methods.GetEffectiveScale(w) or 1
+        local cx, cy = GetCursorPosition()
+        x, y, relPoint, relFrame = x + cx / e, y + cy / e, "BOTTOMLEFT", nil
+    elseif rel == "$parent" then
+        relFrame = w._parent
+    else
+        error("Invalid relative frame id '" .. tostring(rel) .. "'", 2)
+    end
+    table.insert(w._points, { point, relFrame, relPoint, x, y })
 end
 function HANDLE:GetWidth() return frameOf(self)._width end
 function HANDLE:GetHeight() return frameOf(self)._height end
