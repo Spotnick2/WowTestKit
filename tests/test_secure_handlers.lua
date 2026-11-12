@@ -230,4 +230,19 @@ up:Disable()
 up:Click("LeftButton", false)
 eq(#WoW.secureActions, n + 2, "a disabled button doesn't click")
 
+-- Implicit protection (#42): a handle to a frame that parents a secure
+-- frame works in combat; a header still has to be explicitly protected.
+local holder = CreateFrame("Frame", "KitHolder", UIParent)
+CreateFrame("Button", nil, holder, "SecureActionButtonTemplate")
+SecureHandlerSetFrameRef(header, "holder", holder)
+SecureHandlerWrapScript(guarded, "OnClick", header, [[ owner:GetFrameRef("holder"):Hide() ]])
+WoW.combat = true
+WoW.click(guarded, "LeftButton", true)
+check(not holder:IsShown(), "a snippet hides a frame that parents a secure one, in combat")
+WoW.combat = false
+check(select(2, WoW.handleOf(holder):IsProtected()) == false and WoW.handleOf(holder):IsProtected(),
+    "its handle's IsProtected: protected, not explicitly")
+check(not pcall(SecureHandlerWrapScript, guarded, "OnClick", holder, "x = 1"),
+    "it can't be a header (explicit protection only)")
+
 done("test_secure_handlers")

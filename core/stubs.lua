@@ -314,12 +314,28 @@ function CreateFrame(ftype, name, parent, template)
     return w
 end
 
--- A protected frame (w._protected, set by a secure template) refuses the
--- WoW.PROTECTED methods in combat, as the client does: nothing happens and
--- the call is recorded in WoW.blocked. The dispatch above checks it; the
--- methods below also call it, for a direct Methods.Show(w) from a stub.
+-- Protection. A secure template makes a frame protected EXPLICITLY
+-- (w._protected). A frame that parents a protected frame, at any depth, is
+-- protected too (porting guide, "Secure click-casting works", measured on
+-- 69913: a frame that parents secure buttons refuses to hide or move in
+-- combat; #42). IsProtected returns both, as the client's does (the dump:
+-- isProtected, isProtectedExplicitly). A secure header needs the explicit one.
+local function isProtected(w)
+    if w._protected then return true end
+    for _, c in ipairs(w._children or {}) do
+        if isProtected(c) then return true end
+    end
+    return false
+end
+WoW.isProtected = isProtected
+function Methods.IsProtected(w) return isProtected(w), w._protected == true end
+
+-- A protected frame refuses the WoW.PROTECTED methods in combat, as the
+-- client does: nothing happens and the call is recorded in WoW.blocked. The
+-- dispatch above checks it; the methods below also call it, for a direct
+-- Methods.Show(w) from a stub.
 local function refused(w, what)
-    if WoW.combat and w._protected then
+    if WoW.combat and isProtected(w) then
         table.insert(WoW.blocked, (w._name or w._type) .. ":" .. what)
         return true
     end
@@ -898,7 +914,7 @@ local function anyFrameOf(h)
 end
 local function frameOf(h)
     local w = handleFrame[h]
-    if not w or (WoW.combat and not w._protected) then error("Invalid frame handle", 3) end
+    if not w or (WoW.combat and not isProtected(w)) then error("Invalid frame handle", 3) end
     return w
 end
 WoW.frameOf = function(h) return handleFrame[h] end
@@ -967,8 +983,8 @@ function HANDLE:Hide() WoW.setShown(frameOf(self), false) end
 function HANDLE:IsShown() return frameOf(self)._shown end
 function HANDLE:IsVisible() return Methods.IsVisible(frameOf(self)) end
 function HANDLE:IsProtected()
-    local p = anyFrameOf(self)._protected == true
-    return p, p
+    local w = anyFrameOf(self)
+    return isProtected(w), w._protected == true
 end
 function HANDLE:GetParent() return handleOf(frameOf(self)._parent) end
 function HANDLE:ClearAllPoints() frameOf(self)._points = {} end
@@ -1093,7 +1109,7 @@ end
 -- message.
 local function wrappedClick(wrap, self, button, down, ...)
     local message, newbutton
-    if not WoW.combat or self._protected then
+    if not WoW.combat or isProtected(self) then
         newbutton, message = runSnippet(envOf(wrap.header), wrap.header, "self,button,down", wrap.pre,
                                         handleOf(self), button, down)
         if newbutton == false then return end

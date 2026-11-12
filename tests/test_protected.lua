@@ -60,4 +60,31 @@ b:SetSize(40, 50)
 eq(b:GetAttribute("type"), "item", "out of combat a protected frame takes attributes")
 eq(b:GetWidth(), 40, "and resizes")
 
+-- A frame that parents a protected frame is protected too (#42; porting
+-- guide, measured on 69913).
+local grand = CreateFrame("Frame", "KitGrand", UIParent)
+local parent = CreateFrame("Frame", "KitParent", grand)
+local secureChild = CreateFrame("Button", "KitChild", parent, "KitSecureTemplate")
+local hid = 0
+secureChild:SetScript("OnHide", function() hid = hid + 1 end)
+local imp, exp = parent:IsProtected()
+check(imp and not exp, "IsProtected: the parent is protected, not explicitly")
+imp, exp = secureChild:IsProtected()
+check(imp and exp, "the secure frame: both")
+local lone = CreateFrame("Frame", nil, UIParent)
+check(not lone:IsProtected(), "a frame with no protected descendant isn't")
+WoW.combat = true
+WoW.blocked = {}
+parent:Hide()
+check(parent:IsShown(), "the parent of a secure frame refuses to hide in combat")
+check(secureChild:IsVisible() and hid == 0, "so the secure child stays visible, with no OnHide")
+eq(WoW.blocked[1], "KitParent:Hide", "the refusal is recorded")
+grand:SetPoint("TOP")
+eq(WoW.blocked[2], "KitGrand:SetPoint", "a grandparent too")
+lone:Hide()
+check(not lone:IsShown(), "a frame with no protected descendant still hides in combat")
+WoW.combat = false
+parent:Hide()
+check(not parent:IsShown() and hid == 1, "out of combat it hides, and the child gets its OnHide")
+
 done("test_protected")
