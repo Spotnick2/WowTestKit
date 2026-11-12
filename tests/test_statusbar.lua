@@ -1,7 +1,7 @@
 -- SetStatusBarColor colours the fill and drops its gradient (WowTestKit #19,
 -- measured on 70450, LibGlass#64).
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local bar = CreateFrame("StatusBar", nil, UIParent)
 bar:SetStatusBarColor(0.2, 0.4, 0.6, 0.8)

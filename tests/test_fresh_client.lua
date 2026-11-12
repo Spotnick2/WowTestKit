@@ -2,7 +2,7 @@
 -- methods called (WowTestKit #8). The failing cases run as their own Lua
 -- process, from tests/fixtures/fresh_case.lua.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 
 local firstWoW, firstUI = WoW, UIParent
 WoW.secretBlocked = 2   -- as the core counts them once it does (#13)
@@ -14,7 +14,7 @@ local p0 = Kit.counts()
 
 -- The consumer's stub loaded again: kit.lua again, then Kit.load again.
 dofile("kit.lua")
-Kit.load({ build = "70532" })
+Kit.load({ build = "70532", api = Kit.API })
 check(WoW ~= firstWoW, "a new WoW table")
 check(UIParent ~= firstUI, "a new UIParent")
 eq(#WoW.frames, 0, "no frames from the first client")
