@@ -5,6 +5,8 @@ dofile("kit.lua")
 Kit.load({ build = "70532", api = Kit.API })
 
 local firstWoW, firstUI = WoW, UIParent
+local firstTex = UIParent:CreateTexture("KitFirstTexture")
+rawset(_G, "KitAddonOwn", firstTex)   -- a global the addon set itself, to the same widget
 WoW.secretBlocked = 2   -- as the core counts them once it does (#13)
 local f = CreateFrame("Frame", "KitFirstLogin", UIParent)
 Kit.strict({})
@@ -17,6 +19,9 @@ dofile("kit.lua")
 Kit.load({ build = "70532", api = Kit.API })
 check(WoW ~= firstWoW, "a new WoW table")
 check(UIParent ~= firstUI, "a new UIParent")
+eq(rawget(_G, "KitFirstLogin"), nil, "the old client's named frame is no longer a global (#45)")
+eq(rawget(_G, "KitFirstTexture"), nil, "nor its named texture")
+eq(rawget(_G, "KitAddonOwn"), firstTex, "a global the core didn't set is left alone")
 eq(#WoW.frames, 0, "no frames from the first client")
 eq(rawget(_G, "KitNotDefinedYet"), nil, "strict globals are off until the stub calls Kit.strict")
 local ok = pcall(function() return KitNotDefinedYet end)

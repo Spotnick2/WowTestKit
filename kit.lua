@@ -62,6 +62,9 @@ end
 -- far (done() still fails on one), the widget methods called so far
 -- (Kit.checkMethods still checks them), and the count of secret touches a
 -- pcall swallowed, when the core keeps one (done() still fails on it).
+-- What doesn't: the old client's named widgets. Each global the core set for
+-- one is removed while it still names that widget, so an addon's
+-- `if not MyFrame then` makes it again (#45).
 function Kit.freshClient()
     assert(loaded, "Kit.freshClient: call Kit.load first")
     local strays, called = WoW.strays, WoW.methodsCalled
@@ -69,6 +72,9 @@ function Kit.freshClient()
     Kit.earlierMethodsCalled = Kit.earlierMethodsCalled or {}
     for pair in pairs(called) do Kit.earlierMethodsCalled[pair] = true end
     setmetatable(_G, nil)
+    for name, w in pairs(WoW.published or {}) do
+        if rawget(_G, name) == w then rawset(_G, name, nil) end
+    end
     dofile(Kit.ROOT .. "/core/stubs.lua")
     for _, line in ipairs(strays) do table.insert(WoW.strays, line) end
     if secretBlocked then
