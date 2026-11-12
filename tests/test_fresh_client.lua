@@ -26,6 +26,9 @@ WoW.secretBlocked = 0   -- (set by hand above; nothing was touched)
 local p1 = Kit.counts()
 check(p1 >= p0 + 4, "the counts carried on (" .. p0 .. " before, " .. p1 .. " now)")
 check(not pcall(Kit.load, { build = "70790" }), "a second Kit.load for another build throws")
+local okApi, errApi = pcall(Kit.load, { build = "70532", api = Kit.API - 1 })
+check(not okApi and tostring(errApi):find("written for API " .. (Kit.API - 1), 1, true),
+    "a second Kit.load for another API throws the migrate error (#48)")
 
 local g = CreateFrame("Frame")
 g:SetSize(1, 1)        -- the stub building this client: forgotten by Kit.strict

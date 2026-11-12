@@ -30,6 +30,14 @@ local loaded = false
 -- A second call with the same build is Kit.freshClient().
 function Kit.load(opts)
     opts = opts or {}
+    -- The API first, on every call: a second load (a fresh client) is the
+    -- same consumer's stub again and must not run under another API (#48).
+    local api = tonumber(opts.api) or 1
+    if api ~= Kit.API then
+        error(("WowTestKit API %d, but this repo was written for API %d: pin a kit commit for API %d, "
+            .. "or migrate (WowTestKit's docs/MIGRATING.md) and set api=%d in tests/kit.pin")
+            :format(Kit.API, api, api, Kit.API), 0)
+    end
     if loaded then
         if opts.build and tostring(opts.build) ~= Kit.BUILD then
             error(("Kit.load: already loaded for build %s, now asked for %s: one build per test file")
@@ -39,12 +47,6 @@ function Kit.load(opts)
     end
     loaded = true
     assert(opts.build, "Kit.load needs { build = \"<build>\" } (tests/kit.pin's build)")
-    local api = tonumber(opts.api) or 1
-    if api ~= Kit.API then
-        error(("WowTestKit API %d, but this repo was written for API %d: pin a kit commit for API %d, "
-            .. "or migrate (WowTestKit's docs/MIGRATING.md) and set api=%d in tests/kit.pin")
-            :format(Kit.API, api, api, Kit.API), 0)
-    end
     Kit.BUILD, Kit.SHA = tostring(opts.build), opts.sha
     for _, file in ipairs({ "core/assert.lua", "core/toc.lua", "core/data.lua", "core/stubs.lua",
                             "checks/methods.lua", "checks/toc.lua" }) do
