@@ -455,10 +455,12 @@ end
 
 -- Runs one due timer or ticker. A ticker with iterations left goes back in
 -- WoW.timers, re-armed at nextAt, before its callback runs (so a Cancel from
--- inside the callback holds).
+-- inside the callback holds). Only the core's tickers repeat (they carry
+-- their handle): a record a stub put in WoW.timers itself runs once, as
+-- before tickers repeated (WowTestKit #34).
 local function fireTimer(t, nextAt)
     if t.cancelled then return end
-    if not t.every then return t.fn() end
+    if not t.handle then return t.fn() end
     t.fired = t.fired + 1
     if not (t.iterations and t.fired >= t.iterations) then
         t.at = nextAt
