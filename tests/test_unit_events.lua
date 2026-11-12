@@ -18,8 +18,13 @@ check(target:IsEventRegistered("UNIT_HEALTH"), "IsEventRegistered sees a unit ev
 
 local both = frame("both")
 both:RegisterUnitEvent("UNIT_HEALTH", "player", "pet")
+local isReg, u1, u2 = both:IsEventRegistered("UNIT_HEALTH")
+check(isReg and u1 == "player" and u2 == "pet", "IsEventRegistered returns the units, in the order given")
+eq(select("#", target:IsEventRegistered("UNIT_HEALTH")), 2, "one unit: true and that unit")
+eq(select(2, target:IsEventRegistered("UNIT_HEALTH")), "target", "(the target)")
 local all = frame("all")
 all:RegisterEvent("UNIT_HEALTH")
+eq(select("#", all:IsEventRegistered("UNIT_HEALTH")), 1, "a plain registration returns no units")
 
 WoW.fire("UNIT_HEALTH", "target")
 eq(seen(), "target:UNIT_HEALTH:target all:UNIT_HEALTH:target", "a unit event reaches its unit's frame and the plain one")

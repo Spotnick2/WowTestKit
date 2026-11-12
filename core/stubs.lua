@@ -244,22 +244,33 @@ end
 -- RegisterUnitEvent(event, unit1, unit2, ...) (WowTestKit #17): the event
 -- reaches the frame only when its first payload argument is one of those
 -- units. The dump declares units with StrideIndex 1, and Blizzard's own code
--- passes several ("player", "pet"). w._unitEvents[event] is the set of units;
--- a later call replaces it. A plain RegisterEvent of the same event gets every
--- unit's.
+-- passes several ("player", "pet"). w._unitEvents[event] is the set of units
+-- (w._unitEventOrder[event] the same units in the order given); a later call
+-- replaces them. A plain RegisterEvent of the same event gets every unit's.
 function Methods.RegisterUnitEvent(w, e, ...)
     if not WoW.KNOWN_EVENTS[e] then error("Attempt to register unknown event \"" .. tostring(e) .. "\"", 2) end
-    local units = {}
+    local units, order = {}, {}
     for i = 1, select("#", ...) do
         local u = select(i, ...)
-        if u ~= nil then units[u] = true end
+        if u ~= nil and not units[u] then units[u] = true; order[#order + 1] = u end
     end
     w._unitEvents[e] = units
+    w._unitEventOrder = w._unitEventOrder or {}
+    w._unitEventOrder[e] = order
     return true
 end
-function Methods.UnregisterEvent(w, e) w._events[e] = nil; w._unitEvents[e] = nil end
-function Methods.UnregisterAllEvents(w) w._events = {}; w._unitEvents = {} end
-function Methods.IsEventRegistered(w, e) return w._events[e] == true or w._unitEvents[e] ~= nil end
+function Methods.UnregisterEvent(w, e)
+    w._events[e], w._unitEvents[e] = nil, nil
+    if w._unitEventOrder then w._unitEventOrder[e] = nil end
+end
+function Methods.UnregisterAllEvents(w) w._events, w._unitEvents, w._unitEventOrder = {}, {}, {} end
+-- IsEventRegistered(event) -> isRegistered, units... (SimpleFrameAPI: units
+-- with StrideIndex 1): a unit registration's units follow, in the order given.
+function Methods.IsEventRegistered(w, e)
+    local order = w._unitEvents[e] and w._unitEventOrder and w._unitEventOrder[e]
+    if order then return true, unpack(order) end
+    return w._events[e] == true
+end
 
 -- Regions: in creation order for GetRegions (w._regions), as the client lists
 -- a frame's textures and font strings; a named one is also a global.
