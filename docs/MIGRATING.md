@@ -168,9 +168,11 @@ Loading the stub again in the same test file is a fresh client: the counts, stra
 and swallowed-secret count carry over; the old client's named widgets leave `_G`; the API is
 checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks go.
 
-### Smaller ones (WowTestKit #7, #38)
+### Smaller ones (WowTestKit #7, #38, #41)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
 - **Every widget starts with empty `_children` and `_regions`** (#38): Glass UI's `CreateFrame`
   wrapper goes. A test checking `f._children == nil` for "no children" checks `#f._children == 0`.
+- **`SetID` keeps a frame's ID and `GetID` returns it, 0 until set** (#41), on handles too: Glass
+  UI's `-- WowTestKit #41:` `SetID` / `GetID` go. A test that read `nil` from `GetID` reads 0.
