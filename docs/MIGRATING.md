@@ -137,10 +137,16 @@ SetHeight, StartMoving, StopMovingOrSizing, SetClampedToScreen) and records `nam
   methods you rely on beyond the list: `WoW.PROTECTED.SetScale = true`.
 - **Clearing `f._protected` no longer frees a frame that parents protected ones.** A helper that
   acts as Blizzard that way (GlassActionBars' `WoW.blizzard`, `test_edges`: MultiBar5 is
-  protected through its buttons) replaces `WoW.refused` for the call instead. A stub's guard that
-  checks `w._protected` checks `WoW.isProtected(w)`.
-- **Apotheca's `WoW.strictLockdown`** (an error at the call) moves to a replacement of
-  `WoW.refused`: the dispatch refuses before a `Methods` wrapper runs.
+  protected through its buttons) clears `WoW.combat` for the call instead, which both the
+  dispatch and the core's methods check. `InCombatLockdown()` then reads false inside the call,
+  so a helper whose code asks it shows or hides with `WoW.setShown(frame, shown)` instead (no
+  refusal at all). A stub's guard that checks `w._protected` checks `WoW.isProtected(w)`.
+- **Replacing `WoW.refused` changes only the dispatch's check.** The core's `Show`, `Hide`,
+  `SetPoint`, `ClearAllPoints`, `SetAllPoints` and `SetAttribute` check again with their own copy,
+  so a replacement that returns false doesn't let the call through: the core still refuses it.
+  A replacement that raises an error works, since the dispatch checks first: Apotheca's
+  `WoW.strictLockdown` (an error at the call) moves there, as the dispatch refuses before a
+  `Methods` wrapper runs.
 
 ### Unit events (WowTestKit #17)
 
