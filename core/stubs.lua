@@ -138,6 +138,7 @@ function WoW.reset()
     WoW.chat = {}
     WoW.methodsCalled = {}
     WoW.combat = false
+    WoW.locale = nil            -- GetLocale() reads "enUS" until a test sets one
     WoW.timers = {}
     WoW.blocked = {}
     WoW.secretBlocked, WoW.secretBlockedFirst = 0, nil
@@ -681,6 +682,9 @@ function print(...)
 end
 
 function GetTime() return WoW.now or 0 end
+-- The client's locale code (dump: GetLocale() -> localeName:cstring). A test
+-- sets WoW.locale ("deDE", "koKR"...); enUS until it does (WowTestKit #62).
+function GetLocale() return WoW.locale or "enUS" end
 function InCombatLockdown() return WoW.combat == true end
 -- Client string alias (in the dump's _G walk); LibStub's version check uses it.
 strmatch = string.match
@@ -1215,7 +1219,7 @@ WoW.reset()
 -- The client globals this core defines, for the kit's own check that each is
 -- in the build's globals list. FrameXML names (not in a function list) are
 -- listed apart, each with where it comes from.
-Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "InCombatLockdown",
+Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "GetLocale", "InCombatLockdown",
                      "strmatch", "hooksecurefunc", "C_Timer", "pcall", "xpcall", "GetCursorPosition",
                      "SecureHandlerSetFrameRef", "SecureHandlerExecute", "SecureHandlerWrapScript",
                      "SecureHandlerUnwrapScript" }

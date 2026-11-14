@@ -191,7 +191,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Smaller ones (WowTestKit #7, #38, #41)
+### Smaller ones (WowTestKit #7, #38, #41, #62)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
@@ -199,3 +199,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   wrapper goes. A test checking `f._children == nil` for "no children" checks `#f._children == 0`.
 - **`SetID` keeps a frame's ID and `GetID` returns it, 0 until set** (#41), on handles too: Glass
   UI's `-- WowTestKit #41:` `SetID` / `GetID` go. A test that read `nil` from `GetID` reads 0.
+- **The core defines `GetLocale`** (#62): `WoW.locale`, `"enUS"` until a test sets it, cleared by
+  `WoW.reset()`. AltStable's, LibGroupBuffs' and Gnomesweeper's own `GetLocale` stubs can go (one
+  kept after the kit's still wins). `Kit.checkCore()` checks it too, so a file that calls it
+  gains two checks.
