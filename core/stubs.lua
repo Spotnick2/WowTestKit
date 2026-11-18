@@ -137,6 +137,7 @@ function WoW.reset()
     WoW.frames = {}
     WoW.chat = {}
     WoW.methodsCalled = {}
+    WoW.widgets = {}            -- every widget made since, in order (WowTestKit #67)
     WoW.combat = false
     WoW.locale = nil            -- GetLocale() reads "enUS" until a test sets one
     WoW.timers = {}
@@ -219,11 +220,28 @@ local function hasMethod(wtype, k)
     return not buildTypes[wtype]
 end
 
--- A method: records "Type:Method" for the widget it's called on, refuses a
--- protected one in combat, then runs the implementation (nil without one).
+-- Every call on a widget, in order, with its arguments (WowTestKit #67):
+-- w._log holds one { name, n = argc, ... } per call made through the
+-- widget's methods, logged before the combat refusal, so a refused call is
+-- in it too (WoW.blocked says it was refused). A Methods implementation one
+-- stub function calls directly (Methods.Show from Methods.SetShown) isn't a
+-- call on the widget, and isn't logged. A hooksecurefunc on the widget logs
+-- { "hooksecurefunc:<name>", n = 0 } (below). A test compares two logs (a
+-- parity test) or a log's length before and after (nothing repainted).
+local function log(self, k, ...)
+    if type(self) ~= "table" then return end
+    local l = rawget(self, "_log")
+    if not l then l = {}; rawset(self, "_log", l) end   -- a stub's own widget table
+    l[#l + 1] = { k, n = select("#", ...), ... }
+end
+
+-- A method: records "Type:Method" for the widget it's called on, logs the
+-- call, refuses a protected one in combat, then runs the implementation (nil
+-- without one).
 local function method(k)
     return function(self, ...)
         record(self, k)
+        log(self, k, ...)
         if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
         local impl = Methods[k]
         if impl then return impl(self, ...) end
@@ -243,7 +261,7 @@ end
 -- looked up again on each read. Any other key reads as nil, as on the
 -- client, so a call to it fails where it's made (lower-case keys too:
 -- they're fields).
-local methodTables, widgetMTs = {}, {}
+local methodTables, widgetMTs, widgetMTSet = {}, {}, {}
 local function widgetMT(wtype)
     if not widgetMTs[wtype] then
         local t = setmetatable({}, { __index = function(tbl, k)
@@ -257,6 +275,7 @@ local function widgetMT(wtype)
             return nil
         end })
         methodTables[wtype], widgetMTs[wtype] = t, { __index = t }
+        widgetMTSet[widgetMTs[wtype]] = true
     end
     return widgetMTs[wtype]
 end
@@ -275,11 +294,19 @@ local function newWidget(wtype, parent, name)
                              -- works on a frame with none.
                              _children = {}, _regions = {},
                              _level = parent and parent._level and (parent._level + 1) or 1,
-                             _width = 0, _height = 0, _name = name }, widgetMT(wtype))
+                             _width = 0, _height = 0, _name = name, _log = {} }, widgetMT(wtype))
     w._vis = visible(w)
+    -- Every widget made, in creation order (WowTestKit #67): frames,
+    -- regions, masks, a status bar's fill, animations, and a stub's own
+    -- (WoW.newWidget). WoW.reset clears it; UIParent, made before the first
+    -- reset, isn't in it.
+    if WoW.widgets then WoW.widgets[#WoW.widgets + 1] = w end
     return w
 end
 WoW.newWidget = newWidget
+-- Whether v is a widget the core made (its metatable is a widget type's).
+local function isWidget(v) return type(v) == "table" and widgetMTSet[getmetatable(v)] == true end
+WoW.isWidget = isWidget
 
 -- A named widget is a global, as on the client. WoW.published remembers each
 -- name the core set, so a fresh client can take the old client's off (#45).
@@ -692,10 +719,13 @@ strmatch = string.match
 -- The client's secure hook replaces t[name] with a wrapper: the sanctioned way
 -- to hook a Blizzard function. WoW.hooked[t][name] counts the hooks, so a
 -- "no field written" check can tell a hook from a field the addon wrote.
+-- A hook on a widget goes in its call log (w._log, WowTestKit #67), so a
+-- parity test compares the hooks installed too.
 WoW.hooked = {}
 local function pack(...) return { n = select("#", ...), ... } end
 function hooksecurefunc(t, name, fn)
     if type(t) == "string" then t, name, fn = _G, t, name end
+    if isWidget(t) then log(t, "hooksecurefunc:" .. tostring(name)) end
     WoW.hooked[t] = WoW.hooked[t] or {}
     WoW.hooked[t][name] = (WoW.hooked[t][name] or 0) + 1
     local orig = rawget(t, name) or t[name]

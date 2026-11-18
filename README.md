@@ -4,7 +4,8 @@ The shared unit-test scaffolding for the WoW: Forever addons: plain Lua 5.1, no 
 
 - **`core/`**: the assertions (`check`, `eq`, `done`), TOC readers, and the **mechanics** of a
   WoW API mock: strict globals, secrets, events checked against the build, widgets that record
-  every method called, timers, `print` with the stray-`|` check, `hooksecurefunc`.
+  every method called (and log each call with its arguments: `w._log`, `WoW.widgets`), timers,
+  `print` with the stray-`|` check, `hooksecurefunc`.
 - **`checks/`**: `Kit.checkMethods` (every `Type:Method` the addon called exists on that widget
   type), `Kit.checkToc`, `Kit.checkCore`.
 - **`data/forever-<build>/`**: four lists per client build (widget methods, functions, globals,
