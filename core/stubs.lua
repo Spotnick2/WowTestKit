@@ -464,6 +464,67 @@ function Methods.IsForbidden(w) return false end
 function Methods.SetID(w, id) w._id = id end
 function Methods.GetID(w) return w._id or 0 end
 
+-- The widget hierarchy (WowTestKit #68): IsObjectType(t) is true for the
+-- widget's own type and every type it derives from, so a CheckButton (an
+-- action, stance or pet button) is a Button and a Frame, as on the client.
+-- WoW.KIND_OF[type] is the type it derives from. Each pair is checked
+-- against the build's method lists (tests/test_geometry.lua: the type has
+-- every method of the one it derives from); Line and MaskTexture aren't
+-- Textures there. Abstract types (Region, ScriptRegion, Object, ...) aren't
+-- measured on Forever and read false; a stub that relies on one adds it
+-- (WoW.KIND_OF.Texture = "Region"). The name is matched without case:
+-- Blizzard's own code asks IsObjectType("frame") of a frame
+-- (Blizzard_Dispatcher.lua:368, wow-ui-source forever 70959).
+WoW.KIND_OF = {
+    Button = "Frame", CheckButton = "Button",
+    Model = "Frame", PlayerModel = "Model",
+    CinematicModel = "PlayerModel", DressUpModel = "PlayerModel", TabardModel = "PlayerModel",
+    Browser = "Frame", ColorSelect = "Frame", Cooldown = "Frame", EditBox = "Frame",
+    GameTooltip = "Frame", MessageFrame = "Frame", Minimap = "Frame", ModelScene = "Frame",
+    MovieFrame = "Frame", OffScreenFrame = "Frame", ScrollFrame = "Frame",
+    ScrollingMessageFrame = "Frame", SimpleHTML = "Frame", Slider = "Frame", StatusBar = "Frame",
+    UnitPositionFrame = "Frame",
+}
+for atype in pairs(Kit.ANIMATION_TYPES) do WoW.KIND_OF[atype] = "Animation" end
+function Methods.IsObjectType(w, t)
+    if type(t) ~= "string" then return false end
+    t = t:lower()
+    local k, seen = w._type, 0
+    while k and seen < 16 do   -- a stub's cycle can't hang the test
+        if k:lower() == t then return true end
+        k, seen = WoW.KIND_OF[k], seen + 1
+    end
+    return false
+end
+
+-- Geometry as the client reports it (WowTestKit #68): plain fields a test
+-- sets, in the widget's own units, nil while unset (no rect yet, as on the
+-- client before layout). w._left, w._right, w._top, w._bottom are the
+-- edges; GetCenter is their midpoint, nil unless all four are set.
+-- w._escale is the effective scale, 1 unset. A test may put a secret in any
+-- of them; GetCenter then returns secrets. The core's secure handles read
+-- these through the same methods ($cursor, GetMousePosition).
+function Methods.GetLeft(w) return w._left end
+function Methods.GetRight(w) return w._right end
+function Methods.GetTop(w) return w._top end
+function Methods.GetBottom(w) return w._bottom end
+function Methods.GetCenter(w)
+    local l, r, t, b = w._left, w._right, w._top, w._bottom
+    if l == nil or r == nil or t == nil or b == nil then return nil end
+    if issecretvalue(l) or issecretvalue(r) or issecretvalue(t) or issecretvalue(b) then
+        return WoW.Secret("GetCenter x"), WoW.Secret("GetCenter y")
+    end
+    return (l + r) / 2, (b + t) / 2
+end
+function Methods.GetEffectiveScale(w) if w._escale == nil then return 1 end return w._escale end
+-- The pointer over the widget: w._mouseOver (true, or a secret, as the
+-- dump's SecretWhenAnchoringSecret allows). The offsets aren't modelled.
+function Methods.IsMouseOver(w)
+    local v = w._mouseOver
+    if issecretvalue(v) then return v end
+    return v == true
+end
+
 -- Attributes: recorded; refused (and recorded in WoW.blocked) on a protected
 -- frame in combat, as the client does.
 function Methods.SetAttribute(w, k, v)
@@ -557,6 +618,12 @@ function Methods.SetGradient(t, orientation, c1, c2)
     t._alpha = nil   -- a gradient's alpha is its colours' (GetAlpha reads 1)
 end
 function Methods.AddMaskTexture(t, m) t._masks = t._masks or {}; table.insert(t._masks, m) end
+-- Takes that mask off (WowTestKit #68); one it doesn't have is ignored.
+function Methods.RemoveMaskTexture(t, m)
+    for i, x in ipairs(t._masks or {}) do
+        if x == m then table.remove(t._masks, i); return end
+    end
+end
 
 -- Text. An EditBox runs its OnTextChanged on SetText, as the client does.
 function Methods.SetText(fs, text)
@@ -974,7 +1041,7 @@ end
 -- combat on protected frames, never recorded in WoW.blocked.
 function HANDLE:GetName() return anyFrameOf(self)._name end
 function HANDLE:GetObjectType() return anyFrameOf(self)._type end
-function HANDLE:IsObjectType(t) return anyFrameOf(self)._type == t end
+function HANDLE:IsObjectType(t) return Methods.IsObjectType(anyFrameOf(self), t) end
 function HANDLE:GetAttribute(k) local w = frameOf(self); return w._attrs and w._attrs[k] end
 -- RestrictedFrames.lua:522: a name starting with "_" is the frame's own
 -- (snippets, private state) and refused; a value is a string, number,
@@ -1023,7 +1090,7 @@ function HANDLE:SetPoint(point, rel, relPoint, x, y)
     elseif rel == nil or rel == "$screen" then
         relFrame = nil
     elseif rel == "$cursor" then
-        local e = Methods.GetEffectiveScale and Methods.GetEffectiveScale(w) or 1
+        local e = Methods.GetEffectiveScale(w)
         local cx, cy = GetCursorPosition()
         x, y, relPoint, relFrame = x + cx / e, y + cy / e, "BOTTOMLEFT", nil
     elseif rel == "$parent" then
@@ -1042,15 +1109,15 @@ function HANDLE:GetID() return Methods.GetID(frameOf(self)) end
 function HANDLE:SetID(id) frameOf(self)._id = tonumber(id) or 0 end
 -- The cursor as a fraction of the frame's rect, nil outside it
 -- (RestrictedFrames.lua:307): GetCursorPosition() over the effective scale,
--- less the rect's left and bottom. The rect: _left / _bottom (0 unset) and
--- the frame's size; the effective scale: the stub's GetEffectiveScale, else 1.
+-- less the rect's left and bottom. The rect: GetLeft / GetBottom (0 unset)
+-- and the frame's size; the effective scale: GetEffectiveScale (#68).
 function HANDLE:GetMousePosition()
     local w = frameOf(self)
     local width, height = w._width, w._height
     if not width or not height or width == 0 or height == 0 then return nil end
-    local e = Methods.GetEffectiveScale and Methods.GetEffectiveScale(w) or 1
+    local e = Methods.GetEffectiveScale(w)
     local x, y = GetCursorPosition()
-    x, y = x / e - (w._left or 0), y / e - (w._bottom or 0)
+    x, y = x / e - (Methods.GetLeft(w) or 0), y / e - (Methods.GetBottom(w) or 0)
     if x < 0 or x > width or y < 0 or y > height then return nil end
     return x / width, y / height
 end
