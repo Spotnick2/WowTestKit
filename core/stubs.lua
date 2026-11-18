@@ -704,6 +704,33 @@ function Methods.Enable(b) b._disabled = false end
 function Methods.Disable(b) b._disabled = true end
 function Methods.SetEnabled(b, v) b._disabled = not v end
 function Methods.IsEnabled(b) return not b._disabled end
+-- A button's state textures (WowTestKit #70): Set<State>Texture(asset)
+-- sets the file on the button's own texture for that state, a Texture made
+-- on first use with the button as parent, as SetTexture does (one source at
+-- a time); Get<State>Texture returns it, nil until set. Given a Texture, the
+-- button takes that texture. SetHighlightTexture's blend mode, when given,
+-- is set on it, as SetBlendMode does. A nil asset with no texture yet makes
+-- none. Normal, Pushed, Highlight and Disabled (SimpleButtonAPI) and a
+-- CheckButton's Checked (SimpleCheckboxAPI): the states consumers' stubs
+-- had (GlassActionBars', Apotheca's, LibGlass's). Not modelled: Clear*Texture,
+-- the textures' draw layers, a default blend mode, and whether they're in
+-- the button's GetRegions (unmeasured: here they aren't).
+local function setStateTexture(b, key, asset, blend)
+    if type(asset) == "table" then
+        b[key] = asset
+    elseif asset ~= nil or b[key] then
+        b[key] = b[key] or newWidget("Texture", b)
+        Methods.SetTexture(b[key], asset)
+    end
+    if blend ~= nil and b[key] then Methods.SetBlendMode(b[key], blend) end
+end
+for _, state in ipairs({ "Normal", "Pushed", "Highlight", "Disabled", "Checked" }) do
+    local key = "_" .. state:lower() .. "Texture"
+    Methods["Set" .. state .. "Texture"] = function(b, asset, blend)
+        setStateTexture(b, key, asset, state == "Highlight" and blend or nil)
+    end
+    Methods["Get" .. state .. "Texture"] = function(b) return b[key] end
+end
 -- CheckButton.
 function Methods.SetChecked(b, v) b._checked = v and true or false end
 function Methods.GetChecked(b) return b._checked == true end
