@@ -530,8 +530,11 @@ function Methods.CreateTexture(w, name, layer, template, sublevel)
     if name then publish(name, t) end
     return t
 end
-function Methods.CreateFontString(w, name)
+-- The template is a font (a font object's name, "GameFontNormal"): it gives
+-- the font string its font (WowTestKit #69), kept in _fontTemplate.
+function Methods.CreateFontString(w, name, layer, template)
     local fs = addRegion(w, newWidget("FontString", w, name))
+    fs._fontTemplate = template
     if name then publish(name, fs) end
     return fs
 end
@@ -559,7 +562,20 @@ end
 function Methods.AddMaskTexture(t, m) t._masks = t._masks or {}; table.insert(t._masks, m) end
 
 -- Text. An EditBox runs its OnTextChanged on SetText, as the client does.
+-- A FontString with no font refuses SetText (WowTestKit #69): on 70959 it
+-- throws "FontString:SetText(): Font not set" (measured in LibGlass's probe,
+-- /fp steps lg button, 2026-11-18: hotkey and count strings made with
+-- CreateFontString(nil, "OVERLAY") and no template). A font comes from
+-- SetFont, SetFontObject or CreateFontString's template. Every text throws
+-- here, "" and nil too: the check is on the font, but only a non-empty text
+-- was measured. SetFormattedText isn't measured and doesn't throw here. An
+-- EditBox, a Button or a SimpleHTML isn't a FontString, and isn't affected.
+-- The error names the caller's line: level 3, since the method dispatch
+-- tail-calls this, and Lua 5.1 leaves a tail-call frame at level 2.
 function Methods.SetText(fs, text)
+    if fs._type == "FontString" and fs._font == nil and fs._fontObject == nil and fs._fontTemplate == nil then
+        error("FontString:SetText(): Font not set", 3)
+    end
     fs._text = text
     if fs._type == "EditBox" and fs._scripts.OnTextChanged then fs._scripts.OnTextChanged(fs, false) end
 end
