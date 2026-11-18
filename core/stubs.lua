@@ -827,21 +827,39 @@ function WoW.fireAllRegistered()
     return list
 end
 
--- One rendered frame: the clock moves on by elapsed, then OnUpdate runs on
--- every visible frame with it. On the client a frame's elapsed and GetTime()
--- move together, so code that times something by GetTime() inside its
--- OnUpdate sees time pass (WowTestKit #9). Timers stay with WoW.advance and
--- WoW.flushTimers: a test that wants both calls WoW.advance(dt), then
--- WoW.tick(0).
-function WoW.tick(elapsed)
-    elapsed = elapsed or 0.02
-    WoW.now = (WoW.now or 0) + elapsed
+-- OnUpdate on every visible frame made so far, with elapsed.
+local function runOnUpdates(elapsed)
     local list = {}
     for _, w in ipairs(WoW.frames) do list[#list + 1] = w end
     for _, w in ipairs(list) do
         local fn = w._scripts.OnUpdate
         if fn and Methods.IsVisible(w) then fn(w, elapsed) end
     end
+end
+
+-- One rendered frame: the clock moves on by elapsed, then OnUpdate runs on
+-- every visible frame with it. On the client a frame's elapsed and GetTime()
+-- move together, so code that times something by GetTime() inside its
+-- OnUpdate sees time pass (WowTestKit #9). A tick runs no timer: WoW.step
+-- below is a frame with its timers.
+function WoW.tick(elapsed)
+    elapsed = elapsed or 0.02
+    WoW.now = (WoW.now or 0) + elapsed
+    runOnUpdates(elapsed)
+end
+
+-- One rendered frame with its timers (WowTestKit #66): the clock moves on by
+-- dt and the timers due by then run (WoW.advance), then OnUpdate runs with
+-- the same dt. The clock moves once. WoW.advance(dt) then WoW.tick(0) is
+-- not the same: every OnUpdate gets elapsed = 0, so one that adds up elapsed
+-- to throttle itself (`self.t = self.t + elapsed; if self.t < 0.1 then
+-- return end`) never runs (Apotheca#99: 14 test files failed that way).
+-- Timers before OnUpdate within the frame is the order consumers' own step
+-- helpers used; the client's order inside one frame isn't measured.
+function WoW.step(dt)
+    dt = dt or 0.02
+    WoW.advance(dt)
+    runOnUpdates(dt)
 end
 
 --------------------------------------------------------------------------------
@@ -873,6 +891,22 @@ end
 WoW.templates.SecureActionButtonTemplate = function(w)
     w._protected = true
     w._scripts.OnClick = function(...) return WoW.secureActionClick(...) end
+end
+
+-- UIPanelScrollFrameTemplate's frames (WowTestKit #66), from the client's
+-- source (wow-ui-source forever, 70959: Blizzard_SharedXML's
+-- SecureScrollTemplates.xml:44, the ScrollBar Slider at :46, its
+-- UIPanelScrollBarTemplate at :7): sf.ScrollBar ("$parentScrollBar"), and on
+-- it ScrollUpButton and ScrollDownButton ("$parentScrollUpButton",
+-- "$parentScrollDownButton"). Their scripts, anchors, sizes and thumb
+-- texture aren't modelled. Without it, sf.ScrollBar reads nil and code
+-- testing `if sf.ScrollBar then` takes the branch the client never runs.
+WoW.templates.UIPanelScrollFrameTemplate = function(sf)
+    local function named(parent, suffix) return parent._name and (parent._name .. suffix) end
+    local bar = CreateFrame("Slider", named(sf, "ScrollBar"), sf)
+    sf.ScrollBar = bar
+    bar.ScrollUpButton = CreateFrame("Button", named(bar, "ScrollUpButton"), bar)
+    bar.ScrollDownButton = CreateFrame("Button", named(bar, "ScrollDownButton"), bar)
 end
 
 -- What a snippet sees besides its environment's own names: the restricted
