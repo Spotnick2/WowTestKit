@@ -31,9 +31,15 @@ the client. Before, only `WoW.advance` moved the clock. Timers are still run by 
 
 - **A wrapper that moved the clock itself goes.** GlassActionBars' `-- WowTestKit #9:` wrapper
   around `WoW.tick` would now move it twice per tick.
-- **A step helper that advances, then ticks, ticks with 0.** Apotheca's
-  `WoW.step(elapsed)` (`WoW.advance(elapsed); WoW.tick(elapsed)`) becomes
-  `WoW.advance(elapsed); WoW.tick(0)`. Kept, it moves the clock by twice `elapsed`.
+- **A step helper that advances, then ticks, goes: the core's `WoW.step(dt)` is one.** Apotheca's
+  `WoW.step(elapsed)` (`WoW.advance(elapsed); WoW.tick(elapsed)`) would now move the clock by twice
+  `elapsed`. The core's `WoW.step(dt)` (WowTestKit #66) moves it once: the clock moves on by `dt`,
+  the timers due by then run, then OnUpdate runs with `dt`. Don't replace the helper with
+  `WoW.advance(dt); WoW.tick(0)`: that hands every OnUpdate `elapsed = 0`, so one that throttles by
+  adding up `elapsed` (`self.t = self.t + elapsed; if self.t < 0.1 then return end`) never runs.
+  Measured on Apotheca's move (Apotheca#99): with `tick(0)`, 14 of 26 test files failed.
+  On a kit older than `WoW.step`, the same frame is
+  `WoW.advance(dt); WoW.now = WoW.now - dt; WoW.tick(dt)`.
 - **A test helper that moved `WoW.now` and ticked** (GlassMail's `test_openall` and `test_inbox`
   `step`: `WoW.now = WoW.now + dt; WoW.tick(dt)`) drops its own line.
 - **Code timed by `GetTime()` inside OnUpdate now sees time pass under ticks.** A test that
