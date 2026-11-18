@@ -27,8 +27,8 @@ check(f1.Show == W.Show, "an implemented one the type has too")
 -- One table per type: each with its own methods.
 local B = getmetatable(btn).__index
 check(B ~= W, "a Button has its own method table")
-eq(type(B.SetNormalTexture), "function", "with Button:SetNormalTexture")
-eq(W.SetNormalTexture, nil, "which a Frame doesn't have")
+eq(type(B.SetNormalFontObject), "function", "with Button:SetNormalFontObject")
+eq(W.SetNormalFontObject, nil, "which a Frame doesn't have")
 eq(getmetatable(CreateFrame("PlayerModel")).__index.GetModel, nil, "a method the build lacks reads as nil there too")
 
 -- An implementation-only method isn't kept: removing it takes effect.
