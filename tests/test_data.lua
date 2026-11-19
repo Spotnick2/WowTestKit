@@ -61,6 +61,11 @@ for _, build in ipairs(builds) do
     local methods = table.concat(lines("data/forever-" .. build .. "/widget-methods.txt") or {}, "\n")
     check(methods:find("\nAlpha:SetFromAlpha\n", 1, true), build .. ": Alpha:SetFromAlpha (SimpleAnimAlphaAPI)")
     check(methods:find("\nScale:SetScaleFrom\n", 1, true), build .. ": Scale:SetScaleFrom (SimpleAnimScaleAPI)")
+    -- A model scene actor's, from both its systems (WowTestKit #90).
+    check(methods:find("\nModelSceneActor:SetModelByCreatureDisplayID\n", 1, true),
+        build .. ": ModelSceneActor:SetModelByCreatureDisplayID (FrameAPIModelSceneFrameActorBase)")
+    check(methods:find("\nModelSceneActor:SetAutoDress\n", 1, true),
+        build .. ": ModelSceneActor:SetAutoDress (FrameAPIModelSceneFrameActor)")
     -- Regenerate from the dump when it's here, and compare.
     local dump
     local p = io.popen(package.config:sub(1, 1) == "\\"

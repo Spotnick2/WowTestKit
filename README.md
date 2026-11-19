@@ -8,8 +8,8 @@ The shared unit-test scaffolding for the WoW: Forever addons: plain Lua 5.1, no 
   `print` with the stray-`|` check, `hooksecurefunc`.
 - **`checks/`**: `Kit.checkMethods` (every `Type:Method` the addon called exists on that widget
   type), `Kit.checkToc`, `Kit.checkCore`.
-- **`data/forever-<build>/`**: four lists per client build (widget methods, functions, globals,
-  events), generated from that build's API dump by `tools/gen_data.lua`. Never edited by hand.
+- **`data/forever-<build>/`**: four lists per client build (widget methods, a model scene
+  actor's among them, functions, globals, events), generated from that build's API dump by `tools/gen_data.lua`. Never edited by hand.
 - **`scripts/`**: the runners (`run.ps1` locally, `run.sh` in CI).
 - **`bootstrap/`**: the three small files a consumer copies into its `tests/`.
 
