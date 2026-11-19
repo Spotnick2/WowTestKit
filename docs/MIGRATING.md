@@ -112,6 +112,28 @@ period; `WoW.flushTimers` runs it once and keeps it.
   flush or period.
 - A record a stub put in `WoW.timers` itself still runs once (GlassChat's own `NewTicker`).
 
+### Timers run at their due time (WowTestKit #86, #76)
+
+Not a `Kit.API` change: a pin bumped past it sees it with `api=` unchanged. `WoW.advance(dt)` runs
+each due timer in due order with `GetTime()` at its due time (or now, if it was already overdue),
+and a timer scheduled inside one counts from that time; then the clock is at `now + dt`. Before,
+every timer in the advance read its end. `WoW.step` follows: its timers run at their due times,
+then OnUpdate at the step's end.
+
+- **A timer that reads `GetTime()` inside a multi-second advance** now reads its due time: a
+  `C_Timer.After(2, fn)` in `WoW.advance(4)` reads 2, not 4, as on the client. A test that
+  expected the end of the advance moves to the due time. GuildSpy's `test_scanner` needed it
+  (GuildSpy#68).
+- **A chain of timers** (one scheduled inside another) now runs within one long advance:
+  `After(1)` scheduling `After(1)` runs both in `WoW.advance(5)`, at 1 and 2. Before, the second
+  counted from 5 and waited for a later advance, so a test that counted runs after a long advance
+  may now see more. A loop or stub wrapper that stepped the clock from one due time to the next
+  for this can go (GuildSpy's `WoW.advance` in `tests/wow_stubs.lua`).
+- **A 0-second ticker fires once per advance, `WoW.advance(0)` included** (#76), first thing,
+  with the clock where the advance started. Before, `advance(0)` fired it only the first time. A
+  stub's `advance(0)` that moved the clock by `1e-9` to work around it can go (PortalRoulette's
+  `tests/wow_stubs.lua`).
+
 ### OnShow / OnHide fire on a visibility change, down the tree (WowTestKit #21, #46)
 
 `Show` / `Hide` fire the frame's and its descendants' scripts only where visibility changed:

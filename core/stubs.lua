@@ -857,9 +857,12 @@ end
 -- Timers. Two ways to run them:
 -- - WoW.flushTimers(upTo): those whose delay is within upTo seconds (all when
 --   nil), keeping the rest;
--- - WoW.advance(dt): a clock. WoW.now moves on by dt and the timers due by
---   then run in the order they fall due; a timer scheduled inside one counts
---   from the new now, so step a second at a time.
+-- - WoW.advance(dt): a clock. The timers due by now + dt run in the order
+--   they fall due, each with WoW.now at its due time (or now, if it was
+--   already overdue), as on the client a C_Timer.After(2, fn) runs at about
+--   2 s and reads that from GetTime(); a timer scheduled inside one counts
+--   from that time. Then WoW.now is now + dt (WowTestKit #86). So one long
+--   advance runs what stepping through it would, 0-second tickers aside.
 --
 -- A ticker repeats, as on the client (WowTestKit #18): it stays in
 -- WoW.timers after it fires, until cancelled or its iterations are used up.
@@ -912,23 +915,27 @@ function WoW.flushTimers(upTo)
     for _, t in ipairs(run) do fireTimer(t, now + (t.every or 0)) end
 end
 function WoW.advance(dt)
-    WoW.now = (WoW.now or 0) + dt
+    WoW.now = WoW.now or 0
+    local target = WoW.now + dt
     local once = {}   -- the 0-second tickers this advance has fired
     while true do
         local due, at
         for i, t in ipairs(WoW.timers) do
             local tAt = t.at or t.s or 0
-            if tAt <= WoW.now and not once[t] and (not at or tAt < at) then due, at = i, tAt end
+            if tAt <= target and not once[t] and (not at or tAt < at) then due, at = i, tAt end
         end
-        if not due then return end
+        if not due then break end
         local t = table.remove(WoW.timers, due)
+        if at > WoW.now then WoW.now = at end   -- never back: max(due, now)
         -- A 0-second ticker is due again at once: on the client it fires once
         -- a frame, so here once an advance, advance(0) included (WowTestKit
-        -- #76). It is re-armed at the time it fired, due at the next advance.
+        -- #76). It is re-armed at the time it fired, so the next advance
+        -- fires it first thing, with the clock where that advance started.
         local nextAt = at + (t.every or 0)
         if t.every and t.every <= 0 then once[t], nextAt = true, WoW.now end
         fireTimer(t, nextAt)   -- a cancelled one never fires
     end
+    if WoW.now < target then WoW.now = target end   -- a callback's own advance may be past it
 end
 
 --------------------------------------------------------------------------------
@@ -1001,8 +1008,8 @@ function WoW.tick(elapsed)
     runOnUpdates(elapsed)
 end
 
--- One rendered frame with its timers (WowTestKit #66): the clock moves on by
--- dt and the timers due by then run (WoW.advance), then OnUpdate runs with
+-- One rendered frame with its timers (WowTestKit #66): the timers due by
+-- now + dt run at their due times (WoW.advance), then OnUpdate runs with
 -- the same dt. The clock moves once. WoW.advance(dt) then WoW.tick(0) is
 -- not the same: every OnUpdate gets elapsed = 0, so one that adds up elapsed
 -- to throttle itself (`self.t = self.t + elapsed; if self.t < 0.1 then
