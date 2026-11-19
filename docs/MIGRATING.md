@@ -131,7 +131,8 @@ frames out of the parents that survive it.
 
 In combat a protected frame refuses every method in `WoW.PROTECTED` (Show, Hide, SetShown,
 SetPoint, ClearAllPoints, SetAllPoints, SetAttribute, RegisterForClicks, SetSize, SetWidth,
-SetHeight, StartMoving, StopMovingOrSizing, SetClampedToScreen) and records `name:Method` in
+SetHeight, SetScale, SetFrameStrata, SetFrameLevel, EnableMouse, StartMoving, StopMovingOrSizing,
+SetClampedToScreen) and records `name:Method` in
 `WoW.blocked`. A frame that parents a protected one, at any depth, is protected too (measured);
 `IsProtected()` returns `protected, explicitly`.
 
@@ -140,7 +141,10 @@ SetHeight, StartMoving, StopMovingOrSizing, SetClampedToScreen) and records `nam
   `UIParent` included.
 - **A refused `SetShown` is recorded as `name:SetShown`**, no longer `name:Show` / `name:Hide`.
 - **A stub's own guards go** (Apotheca's and GlassUnitFrames' `-- WowTestKit #12:`). Add the
-  methods you rely on beyond the list: `WoW.PROTECTED.SetScale = true`.
+  methods you rely on beyond the list: `WoW.PROTECTED.SetParent = true`.
+- **SetScale, SetFrameStrata, SetFrameLevel and EnableMouse joined the list** (measured on 70959,
+  WowTestKit #83). A stub that added one itself (LibGroupBuffs' `SetScale`) drops its line. SetAlpha,
+  and every write to a protected frame's regions, stay out: the client allows them.
 - **Clearing `f._protected` no longer frees a frame that parents protected ones.** A helper that
   acts as Blizzard that way (GlassActionBars' `WoW.blizzard`, `test_edges`: MultiBar5 is
   protected through its buttons) clears `WoW.combat` for the call instead, which both the

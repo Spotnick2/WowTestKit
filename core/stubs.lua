@@ -165,17 +165,25 @@ end
 -- ADDON_ACTION_BLOCKED): here it's recorded in WoW.blocked as "name:Method".
 -- Checked when the call is made, before any implementation, so a consumer
 -- that replaces one of these Methods keeps the refusal. A consumer adds the
--- ones it relies on (SetParent, SetScale...): WoW.PROTECTED.SetScale = true.
+-- ones it relies on (SetParent...): WoW.PROTECTED.SetParent = true.
 -- Sources: porting guide, "Secure click-casting works" (measured on 69913:
 -- SetAttribute does nothing; a frame parenting secure buttons refuses to
 -- hide, move, re-anchor, unclamp or stop a drag) and the action bar section
--- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar). Resizing
--- is the client's standard lockdown, not measured on Forever separately.
+-- (RegisterForClicks); Apotheca #46 (StopMovingOrSizing on its bar);
+-- LibGroupBuffsProbe's combat sweep (70959, LibGroupBuffs #74, wow-dev-tools
+-- #49; WowTestKit #83): a frame parenting secure buttons refuses Show, Hide,
+-- SetShown, SetPoint, ClearAllPoints, SetClampedToScreen, SetSize, SetWidth,
+-- SetHeight, SetScale, SetFrameStrata, SetFrameLevel and EnableMouse, and the
+-- secure button SetAttribute and SetWidth. Measured as allowed, so left out:
+-- SetAlpha on the protected frame, and any write to its regions (a texture's
+-- or font string's Show, Hide, SetShown, its texture). SetAllPoints,
+-- RegisterForClicks, StartMoving and StopMovingOrSizing weren't in the sweep.
 WoW.PROTECTED = {
     Show = true, Hide = true, SetShown = true,
     SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
     SetAttribute = true, RegisterForClicks = true,
-    SetSize = true, SetWidth = true, SetHeight = true,
+    SetSize = true, SetWidth = true, SetHeight = true, SetScale = true,
+    SetFrameStrata = true, SetFrameLevel = true, EnableMouse = true,
     StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
 }
 
