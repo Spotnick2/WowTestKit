@@ -307,7 +307,7 @@ its model is one the tests rely on.
   lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
   `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.
 
-### A state-only reset, a hook on every call (WowTestKit #80, #81)
+### A state-only reset, a hook on every call, a frame's masks (WowTestKit #80, #81, #82)
 
 - **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far,
   `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
@@ -322,3 +322,9 @@ its model is one the tests rely on.
   `HookScript`, and records `name:Method` for a state write (`Show`, `Hide`, `EnableMouse`,
   `Raise`, `Lower`, `Set*`, `Start*`, `Stop*`, `Clear*`). The stub clears `WoW.combatTouches` in a
   `WoW.onReset` function; the hook itself survives `WoW.reset`.
+- **A frame's masks are in `f._maskTextures`** (#82), in creation order, and move with `SetParent`.
+  `GetRegions()` still doesn't return them: whether the client's does is unmeasured, and
+  Blizzard's source doesn't settle it. A test that walks a frame's masks walks `f._maskTextures`.
+  LibGroupBuffs' `-- WowTestKit #82:` `CreateMaskTexture` (which added each mask to the regions,
+  as its pre-kit stub did) goes; kept, its tests also rely on `GetRegions()` listing masks, which
+  nobody has measured.

@@ -331,7 +331,7 @@ local function newWidget(wtype, parent, name)
                              _scripts = {}, _events = {}, _unitEvents = {},
                              -- Lists from the start (WowTestKit #38), so ipairs(f._children)
                              -- works on a frame with none.
-                             _children = {}, _regions = {},
+                             _children = {}, _regions = {}, _maskTextures = {},
                              _level = parent and parent._level and (parent._level + 1) or 1,
                              _width = 0, _height = 0, _name = name, _log = {} }, widgetMT(wtype))
     w._vis = visible(w)
@@ -540,6 +540,9 @@ function Methods.SetParent(w, p)
         -- in its parent's regions. Another widget (a status bar's fill) was
         -- in no list, and joins none.
         if p then p._regions = p._regions or {}; table.insert(p._regions, w) end
+    elseif old and takeOut(old._maskTextures, w) then
+        -- A mask made by CreateMaskTexture: in its parent's masks (#82).
+        if p then p._maskTextures = p._maskTextures or {}; table.insert(p._maskTextures, w) end
     end
 end
 function Methods.GetChildren(w) return unpack(w._children or {}) end
@@ -738,7 +741,20 @@ function Methods.CreateFontString(w, name, layer, template)
     if name then publish(name, fs) end
     return fs
 end
-function Methods.CreateMaskTexture(w) return newWidget("MaskTexture", w) end
+-- A frame's mask textures, in creation order, are in w._maskTextures
+-- (WowTestKit #82), so a test can walk the masks a frame made. Not in
+-- w._regions, so GetRegions doesn't return them: whether the client's
+-- GetRegions lists a MaskTexture is unmeasured, and Blizzard's source
+-- (forever 70959) doesn't settle it (no caller of GetRegions there checks
+-- for one, and the API documentation, SimpleFrameAPIDocumentation.lua,
+-- doesn't say). Not to be mixed up with a texture's t._masks, the masks
+-- AddMaskTexture put on it.
+function Methods.CreateMaskTexture(w)
+    local m = newWidget("MaskTexture", w)
+    w._maskTextures = w._maskTextures or {}   -- a stub's own widget table
+    table.insert(w._maskTextures, m)
+    return m
+end
 function Methods.GetRegions(w) return unpack(w._regions or {}) end
 
 -- Textures: one source at a time, as on the client (a file, an atlas or a colour).

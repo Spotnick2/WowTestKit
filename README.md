@@ -52,7 +52,7 @@ Local runs and CI use the same pinned commit. The local copy is cached in
 
 An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
 
-## Resets and call hooks
+## Resets, call hooks and masks
 
 - **`WoW.reset()`** clears the client's state and discards every frame made so far (events and
   OnUpdate no longer reach them): for a suite that loads the addon again after each reset.
@@ -64,6 +64,9 @@ An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is 
   combat refusal: a refused call is seen too, with `WoW.combat` and `WoW.isProtected(widget)` as
   they are at the call. `table.insert(WoW.onMethodCall, fn)` in the stub; `WoW.reset` keeps the
   list, a fresh client starts with an empty one.
+- **`f._maskTextures`** lists the masks a frame made with `CreateMaskTexture`, in creation order
+  (a texture's `t._masks` are the masks `AddMaskTexture` put on it). They aren't in `f._regions`,
+  so `GetRegions()` doesn't return them: whether the client's does is unmeasured.
 
 ## A new client build
 
