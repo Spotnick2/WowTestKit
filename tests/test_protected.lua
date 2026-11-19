@@ -8,6 +8,7 @@ local b = CreateFrame("Button", "KitSecure", UIParent, "KitSecureTemplate")
 b:SetSize(10, 10)
 b:SetAttribute("type", "macro")
 b:EnableMouse(true)
+b:SetPoint("TOPLEFT")
 local plain = CreateFrame("Frame", nil, UIParent)
 
 WoW.combat = true
@@ -20,6 +21,8 @@ local calls = {
     -- LibGroupBuffsProbe's combat sweep, 70959 (#83).
     { "SetScale", 2 }, { "SetFrameStrata", "HIGH" }, { "SetFrameLevel", 9 },
     { "EnableMouse", false },
+    -- Flagged protected in the build's API documentation (#96's review).
+    { "ClearPoint", "TOPLEFT" }, { "StartSizing", "BOTTOMRIGHT" },
 }
 for i, c in ipairs(calls) do
     b[c[1]](b, select(2, unpack(c)))
@@ -32,6 +35,8 @@ eq(b:GetHeight(), 10, "nor SetHeight / SetSize")
 check(b:IsShown(), "the refused SetShown(false) left it shown")
 check(b:GetFrameStrata() ~= "HIGH", "the refused SetFrameStrata changed nothing")
 check(b:GetFrameLevel() ~= 9, "nor SetFrameLevel")
+eq(b:GetPoint(1), "TOPLEFT", "nor ClearPoint")
+check(not b._sizing, "nor StartSizing")
 check(b:IsMouseEnabled(), "nor EnableMouse(false)")
 check(WoW.methodsCalled["Button:SetAttribute"], "a refused call is still recorded for the methods check")
 

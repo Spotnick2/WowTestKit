@@ -33,6 +33,7 @@ for _, c in ipairs({
     { "othersubtype", "Alpha:SetScaleFrom %(its own or Animation's%)" },
     { "noreason", "allowed with a reason: Frame:GetMapID" },
     { "stubcalls", "recorded the addon's widget method calls %(0%)" },
+    { "actorframe", "method exists on Forever 70532: ModelSceneActor:SetPoint" },
 }) do
     local out = run(c[1])
     check(out:find(c[2]), c[1] .. ": fails with " .. c[2] .. "\n" .. out)
@@ -44,5 +45,7 @@ local late = run("allowedlate")
 check(late:find(" 0 failed"), "an implemented one allowed at the check passes\n" .. late)
 local own = run("subtype")
 check(own:find(" 0 failed"), "an animation subtype's own method passes (Alpha:SetFromAlpha)\n" .. own)
+local actor = run("actor")
+check(actor:find(" 0 failed"), "a model scene actor's methods pass (ModelSceneActor:SetModelByCreatureDisplayID)\n" .. actor)
 
 done("test_methods")

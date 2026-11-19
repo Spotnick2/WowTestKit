@@ -132,7 +132,7 @@ check(not loose:IsShown(), "out of combat the same snippet hides it")
 env.hideLoose = nil
 check(not pcall(SecureHandlerWrapScript, plain, "OnClick", CreateFrame("Frame"), "x = 1"),
     "a header must be explicitly protected")
-check(not pcall(SecureHandlerWrapScript, button, "OnEnter", header, "x = 1"), "only OnClick is modelled, and says so")
+check(not pcall(SecureHandlerWrapScript, button, "OnDragStart", header, "x = 1"), "a script the core doesn't wrap is refused, and says so")
 
 -- SecureHandlerExecute, RunAttribute, newtable, control. A snippet in an
 -- attribute is set by addon code out of combat ("_" names aren't a snippet's).

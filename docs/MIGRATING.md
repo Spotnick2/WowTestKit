@@ -112,6 +112,28 @@ period; `WoW.flushTimers` runs it once and keeps it.
   flush or period.
 - A record a stub put in `WoW.timers` itself still runs once (GlassChat's own `NewTicker`).
 
+### Timers run at their due time (WowTestKit #86, #76)
+
+Not a `Kit.API` change: a pin bumped past it sees it with `api=` unchanged. `WoW.advance(dt)` runs
+each due timer in due order with `GetTime()` at its due time (or now, if it was already overdue),
+and a timer scheduled inside one counts from that time; then the clock is at `now + dt`. Before,
+every timer in the advance read its end. `WoW.step` follows: its timers run at their due times,
+then OnUpdate at the step's end.
+
+- **A timer that reads `GetTime()` inside a multi-second advance** now reads its due time: a
+  `C_Timer.After(2, fn)` in `WoW.advance(4)` reads 2, not 4, as on the client. A test that
+  expected the end of the advance moves to the due time. GuildSpy's `test_scanner` needed it
+  (GuildSpy#68).
+- **A chain of timers** (one scheduled inside another) now runs within one long advance:
+  `After(1)` scheduling `After(1)` runs both in `WoW.advance(5)`, at 1 and 2. Before, the second
+  counted from 5 and waited for a later advance, so a test that counted runs after a long advance
+  may now see more. A loop or stub wrapper that stepped the clock from one due time to the next
+  for this can go (GuildSpy's `WoW.advance` in `tests/wow_stubs.lua`).
+- **A 0-second ticker fires once per advance, `WoW.advance(0)` included** (#76), first thing,
+  with the clock where the advance started. Before, `advance(0)` fired it only the first time. A
+  stub's `advance(0)` that moved the clock by `1e-9` to work around it can go (PortalRoulette's
+  `tests/wow_stubs.lua`).
+
 ### OnShow / OnHide fire on a visibility change, down the tree (WowTestKit #21, #46)
 
 `Show` / `Hide` fire the frame's and its descendants' scripts only where visibility changed:
@@ -132,7 +154,7 @@ frames out of the parents that survive it.
 In combat a protected frame refuses every method in `WoW.PROTECTED` (Show, Hide, SetShown,
 SetPoint, ClearAllPoints, SetAllPoints, SetAttribute, RegisterForClicks, SetSize, SetWidth,
 SetHeight, SetScale, SetFrameStrata, SetFrameLevel, EnableMouse, StartMoving, StopMovingOrSizing,
-SetClampedToScreen) and records `name:Method` in
+SetClampedToScreen, ClearPoint, StartSizing) and records `name:Method` in
 `WoW.blocked`. A frame that parents a protected one, at any depth, is protected too (measured);
 `IsProtected()` returns `protected, explicitly`.
 
@@ -158,7 +180,7 @@ SetClampedToScreen) and records `name:Method` in
   `WoW.strictLockdown` (an error at the call) moves there, as the dispatch refuses before a
   `Methods` wrapper runs.
 
-### Unit events (WowTestKit #17)
+### Unit events (WowTestKit #17, #94)
 
 `Frame:RegisterUnitEvent(event, unit1, unit2, …)` delivers the event only for those units;
 `IsEventRegistered` returns them; `WoW.fireAllRegistered()` fires a unit event once per registered
@@ -168,6 +190,20 @@ unit, with it as the payload.
   it hides the unit filter.
 - **`w._unitEvents[event]` is a set** (`{ target = true }`), not the unit string GlassUnitFrames'
   stub kept.
+- **`WoW.fireAllRegistered(units)` takes an optional list of units** (#94): every event a frame
+  registered plainly fires once per unit in it (sorted, each once, together with its
+  `RegisterUnitEvent` units), instead of once with no payload. Without the list, or with an
+  empty one, nothing changes. GlassRaidFrames' `-- WowTestKit #94:` `fireAllRegistered` goes:
+  pass it the units it modelled (`WoW.units` and `"player"`).
+
+### Refused events (WowTestKit #79)
+
+- **`RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")` returns `false` and registers nothing**, as on
+  Forever (measured; the client raises `ADDON_ACTION_FORBIDDEN`). Each refusal is recorded in
+  `WoW.forbidden` (`"name:RegisterEvent:EVENT"`, cleared by `WoW.reset()`), not in `WoW.blocked`.
+  The set is `WoW.REFUSED_EVENTS`; a stub adds one it measured. A test that registered the
+  combat log and fired it now sees nothing arrive. Stakeout's `-- WowTestKit #79:` override
+  (`WoW.refusedEvents`) goes.
 
 ### The status bar colour (WowTestKit #19)
 
@@ -189,6 +225,30 @@ templates (`SecureActionButtonTemplate`'s OnClick is the secure action, `WoW.sec
 - **Snippets follow the client's rules:** no `function` keyword or table literals; `SetAttribute`
   refuses `_` names and table values; `SetPoint` needs a protected relative frame; in combat a
   handle reaches only protected frames.
+- **State drivers** (#77): the core defines `RegisterStateDriver`, `UnregisterStateDriver`,
+  `RegisterAttributeDriver`, `UnregisterAttributeDriver` and `SecureCmdOptionParse`, so
+  `Kit.checkCore()` gains ten checks. A stub's own (Apotheca's `-- WowTestKit #77:`) goes. A
+  driver resolves at registration, then every 0.2 s of `WoW.tick` / `WoW.step`, and on the next
+  frame after `WoW.fire("PLAYER_REGEN_DISABLED")` (or `_ENABLED`, and the client's other wake
+  events): flipping `WoW.combat` alone waits out the 0.2 s. Registering in combat is refused (in
+  `WoW.blocked`). The core's conditions are `[combat]` and `no...`; any other is an error until
+  the stub adds it to `WoW.CONDITIONS`. `[group]`, `[party]` and `[raid]` read false in combat, as
+  measured. `_onstate-<s>` snippets don't run (OnAttributeChanged isn't modelled).
+- **The secure action resolves modified attributes** (#88): `*type1`, `shift-type*`, `type`...
+  for the mouse button and the modifiers the stub's `IsShiftKeyDown` / `IsControlKeyDown` /
+  `IsAltKeyDown` report (none held when it has none), and `WoW.secureActions` records the
+  resolved values. A stub's own `SecureActionButtonTemplate` for this (Shatter's) goes. **An edge
+  whose type resolves to nothing records nothing now**: a test that counted an entry for a button
+  with no `type` (or for a right click on a `*type1` button) counts one less. With
+  `WoW.useKeyHeldSpell` (the `ActionButtonUseKeyHeldSpell` CVar, off by default) or a
+  `pressAndHoldAction` attribute, the up edge acts on `typerelease` (`release = true`).
+- **`SecureHandlerWrapScript` wraps `OnEnter`, `OnLeave`, `OnShow` and `OnHide` too** (#93), as
+  the client does; other scripts but `OnClick` are still refused. GlassRaidFrames'
+  `-- WowTestKit #93:` wrap, execute and frame-ref stubs go, and its tests drive the snippets
+  through the kit: `WoW.enter(frame)` / `WoW.leave(frame)` run `OnEnter` / `OnLeave` with
+  `motion` (true unless given). The enter and leave pre snippets get `self` only (no `motion`),
+  run only on a motion, and a leave's only after an enter (`_wrapentered`). Handles have
+  `control:RunFor(otherHandle, body, ...)`.
 
 ### A fresh client (WowTestKit #8, #45, #48)
 
@@ -201,7 +261,46 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Smaller ones (WowTestKit #7, #38, #41, #62)
+### Widget methods the stubs had (WowTestKit #78, #89, #92)
+
+The core now implements methods most consumers had in their own stub. Each read as a method
+before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
+its model is one the tests rely on.
+
+- **`GetSize()` returns the width and height** (#78), as `GetWidth` / `GetHeight` read them. The
+  `-- WowTestKit #78:` one-liners go (Apotheca, GlassMiniMap, GlassMiniMapBar, GlassQuestTracker,
+  GlassUI, NodeRadar, PortalRoulette, Shatter, Stakeout).
+- **The `-- WowTestKit #89:` methods** (Shatter, GlassRaidFrames, Gnomesweeper, TimeIsMoney):
+  `GetNumPoints`, `SetScale` / `GetScale` (1 until set), `SetMovable` / `IsMovable`,
+  `StartMoving` / `StartSizing` / `StopMovingOrSizing` (`_moving`, `_sizing`),
+  `SetResizeBounds` (`_resizeBounds`), `RegisterForClicks`, the ScrollFrame's scroll child and
+  vertical scroll, EditBox focus, GameTooltip's lines and owner, `GetTexture`, `GetMinMaxValues`
+  (0, 0 until set), and `GetStringWidth` / `GetStringHeight`. Where a stub's names differ, its
+  tests move to the core's:
+  - `RegisterForClicks` keeps the clicks in `_registeredClicks` (`_clicks` is
+    `SetMouseClickEnabled`'s already): TimeIsMoney and GlassRaidFrames read `_clicks`.
+  - `GetVerticalScrollRange` reads a test's `_yrange` (Shatter's `_vscrollRange`, Apotheca's
+    `_vrange`), and `SetVerticalScroll` fires `OnVerticalScroll` on a change.
+  - A tooltip's lines are `_lines` (left texts) and `_linesRight` (an `AddDoubleLine`'s right
+    text): a test that read a double line as one `"left|right"` or `"left\tright"` string reads
+    the two. `SetOwner` clears the lines and `SetText` makes its text the only line (Shatter's
+    model); TimeIsMoney's, whose `SetOwner` kept them and which kept them in `lines`, differs.
+  - **One edit box has the focus at a time** (`WoW.focus`): `SetFocus` on another fires the first
+    one's `OnEditFocusLost`.
+  - **The string metrics are an approximation** (6 units a character, 14 a line, wrapped at the
+    width set): a test that asserted a stub's own numbers keeps its stub's method.
+- **`GetEffectiveScale` follows `SetScale`** (#89): unset, it's the product of the scales up the
+  parents (porting guide, "GetCenter is in the frame's OWN space"), so 1 only while nothing is
+  scaled. A test's `_escale` still wins. A test that scaled a frame and expected 1 sets `_escale`;
+  Gnomesweeper's chain goes.
+- **`SetPoint` replaces the anchor a frame already has for that point** (#92), as the client keeps
+  one anchor per point; a secure handle's `SetPoint` too, and a second `SetAllPoints` replaces the
+  first. `ClearPoint(point)` removes one. A frame re-anchored without `ClearAllPoints` now counts
+  each point once in `#f._points` and `GetNumPoints()`, and a replaced anchor moves to the end of
+  the list, so `GetPoint(i)` / `f._points[i]` may read another anchor than before. GlassRaidFrames'
+  `-- WowTestKit #92:` `SetPoint` and its `ClearPoint` go.
+
+### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
@@ -213,3 +312,55 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   `WoW.reset()`. AltStable's, LibGroupBuffs' and Gnomesweeper's own `GetLocale` stubs can go (one
   kept after the kit's still wins). `Kit.checkCore()` checks it too, so a file that calls it
   gains two checks.
+- **A click on a CheckButton toggles its checked state before PreClick and OnClick** (#87), as
+  Blizzard's check box handlers expect: `WoW.click(b)` / `b:Click()` on an enabled CheckButton,
+  each call once. GlassGear's `-- WowTestKit #87:` override of `Methods.Click` goes. A test that
+  clicked a check box and asserted the old state, or clicked both edges (`down` true, then
+  false) of one click, now sees it toggled (twice for the two edges).
+- **`xpcall(f, handler, ...)` passes `...` to `f`** (#91), as the client's does, and still counts a
+  swallowed secret touch. Gnomesweeper's and AltStable's `xpcall` overrides go (Gnomesweeper's is
+  `-- WowTestKit #91:`).
+- **`Kit.checkToc` takes `{ version = "dev" }`** (#84) for an addon that's never packaged: it
+  checks that whole `## Version:` line instead of the packager's token (the default, unchanged).
+  ForeverProbe's `-- WowTestKit #84:` checks go.
+- **A model scene actor is a `ModelSceneActor` widget** (#90): each build's widget methods have
+  that type (the dump's `FrameAPIModelSceneFrameActor` and `...ActorBase` functions), and the
+  core's `ModelScene:CreateActor()` makes one, kept in `scene._actors`. `Kit.checkMethods` checks
+  an actor's calls like any widget's: Gnomesweeper's `-- WowTestKit #90:` `allow` entries go, and
+  its and AltStable's own `CreateActor` can go (one kept still wins). An actor method the build
+  lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
+  `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.
+
+### A state-only reset, a hook on every call, a frame's masks, intrinsics (WowTestKit #80, #81, #82, #85)
+
+- **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far
+  (with their state drivers, #77), `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
+  emptied `WoW.frames` before the kit's reset, then put the three back) goes: call the kit's with
+  `{ keepFrames = true }`. `WoW.reset()` with no opts is unchanged.
+- **A hook on every widget call** (#81): each function in `WoW.onMethodCall` runs as
+  `fn(widget, methodName, ...)`, before the combat refusal. LibGroupBuffs' `-- WowTestKit #81:`
+  workaround (a metatable on `WoW.PROTECTED` answering truthy for every state write, and a wrapped
+  `WoW.refused` that recorded the touch, then refused only what `rawget(WoW.PROTECTED, method)`
+  names) goes: `WoW.PROTECTED` and `WoW.refused` stay the kit's, and `WoW.combatTouches` is filled
+  by a hook that returns unless `WoW.combat` and `WoW.isProtected(widget)`, skips `SetScript` /
+  `HookScript`, and records `name:Method` for a state write (`Show`, `Hide`, `EnableMouse`,
+  `Raise`, `Lower`, `Set*`, `Start*`, `Stop*`, `Clear*`). The stub clears `WoW.combatTouches` in a
+  `WoW.onReset` function; the hook itself survives `WoW.reset`.
+- **A frame's masks are in `f._maskTextures`** (#82), in creation order, and move with `SetParent`.
+  `GetRegions()` still doesn't return them: whether the client's does is unmeasured, and
+  Blizzard's source doesn't settle it. A test that walks a frame's masks walks `f._maskTextures`.
+  LibGroupBuffs' `-- WowTestKit #82:` `CreateMaskTexture` (which added each mask to the regions,
+  as its pre-kit stub did) goes; kept, its tests also rely on `GetRegions()` listing masks, which
+  nobody has measured.
+- **An XML intrinsic is a widget of its base type** (#85): `CreateFrame("EventFrame")` makes a
+  `Frame`, `CreateFrame("DropdownButton")` a `Button` (`WoW.INTRINSIC`, every intrinsic in
+  Blizzard's source but `ScrollingMessageFrame`, which the build lists as a type). Before, the
+  widget's type was the intrinsic's name: every name read as a method on it, and
+  `Kit.checkMethods` failed each call ("widget type exists on Forever …: EventFrame:SetPoint").
+  Now `w._type` and `GetObjectType()` are the base type (the client's `GetObjectType` for an
+  intrinsic is unmeasured), `w._intrinsic` keeps the name, and the calls are recorded on the base
+  type. **A method the base type lacks now reads `nil`**: the intrinsic's mixin methods
+  (`DropdownButtonMixin:SetupMenu`) are allowed on the base type,
+  `Kit.allowMethods({ ["Button:SetupMenu"] = "…" })`, and a pair allowed under the intrinsic's
+  name (`DropdownButton:SetupMenu`) moves there. GuildSpy's `-- WowTestKit #85:` `CreateFrame`
+  wrapper goes. A stub's `if w._type == "DropdownButton"` reads `w._intrinsic`.

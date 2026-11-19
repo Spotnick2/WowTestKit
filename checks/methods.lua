@@ -11,7 +11,9 @@
 --
 -- Each recorded "Type:Method" must be that exact pair in the build's widget
 -- methods. An animation subtype (Alpha, Translation, ...) may call its own
--- methods (the dump's SimpleAnim<Type>API) or any Animation method. Methods a
+-- methods (the dump's SimpleAnim<Type>API) or any Animation method. A model
+-- scene actor (ModelScene:CreateActor) is a ModelSceneActor: its methods are
+-- the dump's FrameAPIModelSceneFrameActor and ...ActorBase functions. Methods a
 -- Blizzard mixin adds in Lua (MapCanvasMixin's GetMapID...) aren't in the
 -- dump's widget walk: allow each pair, naming the Blizzard file, here or
 -- (so that it reads as a method while the addon runs) with Kit.allowMethods

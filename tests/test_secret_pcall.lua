@@ -19,6 +19,13 @@ local handled
 check(not xpcall(function() return s .. "" end, function(e) handled = e; return e end), "xpcall catches a touch")
 eq(WoW.secretBlocked, 5, "xpcall counts it")
 check(handled and handled:find("secret value touched", 1, true), "and still hands the error to its handler")
+-- xpcall passes its extra arguments to f, as the client's does (WowTestKit #91).
+local xok, x1, x2 = xpcall(function(...) local a, b, c = ...; return a .. tostring(b) .. c, select("#", ...) end,
+    function(e) return e end, "a", nil, "c", nil)
+check(xok and x1 == "anilc" and x2 == 4, "xpcall passes its extra arguments, nils included")
+check(not xpcall(function(v) return v .. "" end, function(e) return e end, s), "a touch on an argument")
+eq(WoW.secretBlocked, 6, "is counted too")
+WoW.secretBlocked = 5   -- the checks below count from here
 
 check(not pcall(string.format, "%s", s), "string.format on a secret throws")
 eq(WoW.secretBlocked, 6, "and is counted (Lua's own argument check names no secret)")

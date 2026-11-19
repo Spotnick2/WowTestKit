@@ -4,7 +4,8 @@
 --   lua tools/gen_data.lua <dump.md> [outroot]      (outroot defaults to data)
 --
 -- Writes <outroot>/forever-<build>/:
---   widget-methods.txt  every Type:Method pair the client's widget metatables have
+--   widget-methods.txt  every Type:Method pair the client's widget metatables have,
+--                       and a model scene actor's (ModelSceneActor:<Method>)
 --   functions.txt       every callable: documented functions (not script-object
 --                       methods), the _G walk's functions, every namespace's members
 --   globals.txt         top-level names: the _G walk's functions and each
@@ -71,7 +72,15 @@ local function addonOwned(name)
 end
 local dropped = 0
 
-local sets = { documented = {}, events = {}, widgets = {}, globals = {}, namespaces = {}, subtypes = {} }
+-- A model scene actor (ModelScene:CreateActor) is never a CreateFrame widget,
+-- so the widget walk never meets one: its methods are only the documented
+-- functions of these systems (WowTestKit #90). Its type is ModelSceneActor,
+-- the name the addons' stubs used; the client's GetObjectType() for an actor
+-- is unmeasured.
+local ACTOR_SYSTEMS = { FrameAPIModelSceneFrameActor = true, FrameAPIModelSceneFrameActorBase = true }
+
+local sets = { documented = {}, events = {}, widgets = {}, globals = {}, namespaces = {}, subtypes = {},
+               actors = {} }
 local section
 local f = assert(io.open(dump, "r"))
 for line in f:lines() do
@@ -93,7 +102,8 @@ for line in f:lines() do
             local sub = system:match("^SimpleAnim(%w+)API$")
             if sub and sub ~= "Group" and sub ~= "atableObject" then sets.subtypes[sub .. ":" .. name] = true end
         elseif name then
-            sets.documented[name] = true
+            sets.documented[name] = true   -- an actor's too, as before
+            if ACTOR_SYSTEMS[system] then sets.actors["ModelSceneActor:" .. name] = true end
         end
     elseif section == "events" then
         local name = line:match("^([A-Z][A-Z0-9_]+)%s+%(")
@@ -118,6 +128,7 @@ for k, s in pairs(sets) do
 end
 
 for pair in pairs(sets.subtypes) do sets.widgets[pair] = true end
+for pair in pairs(sets.actors) do sets.widgets[pair] = true end
 
 local functions, globals = {}, {}
 for name in pairs(sets.documented) do functions[name] = true end

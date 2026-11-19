@@ -42,7 +42,7 @@ WoW.step(0.25)
 eq(#order, 0, "a timer not yet due doesn't run")
 WoW.step(0.25)
 eq(order[1] and order[1][1], "timer", "the timer due by the step's end runs")
-eq(order[1] and order[1][2], t0 + 0.5, "with the clock at the step's end")
+eq(order[1] and order[1][2], t0 + 0.5, "with the clock at its due time, the step's end here (#86)")
 eq(order[2] and order[2][1], "update", "and OnUpdate runs after it, in the same step")
 fired:SetScript("OnUpdate", nil)
 
