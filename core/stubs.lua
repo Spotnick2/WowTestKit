@@ -135,7 +135,8 @@ WoW.onReset = {}
 -- between sections: the frames made so far are kept (WoW.frames, so events
 -- and OnUpdate still reach them, with their parents and children), and so
 -- are WoW.widgets and WoW.methodsCalled (Kit.checkMethods still sees the
--- load's calls). Everything else is cleared as by WoW.reset(): chat,
+-- load's calls), and so are their state drivers (#77), as their event
+-- registrations are. Everything else is cleared as by WoW.reset(): chat,
 -- combat, timers (a ticker started at load is dropped too), WoW.blocked...
 -- Each WoW.onReset function gets the same opts.
 function WoW.reset(opts)
@@ -165,8 +166,11 @@ function WoW.reset(opts)
     WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
     WoW.focus = nil             -- the edit box with the keyboard focus (WowTestKit #89)
     WoW.useKeyHeldSpell = false -- the ActionButtonUseKeyHeldSpell CVar (press-and-hold casting, #88)
-    WoW.stateDrivers = {}       -- [frame] = { [attribute] = values } (WowTestKit #77)
-    WoW.stateDriverTimer = nil  -- SecureStateDriverManager's throttle; nil while it's hidden
+    -- [frame] = { [attribute] = values } (WowTestKit #77). A frame's drivers
+    -- are its registrations, as its events are: kept with the frames.
+    WoW.stateDrivers = keepFrames and WoW.stateDrivers or {}
+    -- SecureStateDriverManager's throttle; nil while it's hidden.
+    WoW.stateDriverTimer = keepFrames and WoW.stateDriverTimer or nil
     for _, fn in ipairs(WoW.onReset) do fn(opts) end
 end
 

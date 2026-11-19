@@ -73,4 +73,20 @@ eq(got and got.keepFrames, nil, "and WoW.onReset sees the opts given")
 WoW.reset()
 eq(got, nil, "or none")
 
+-- A frame's state drivers are its registrations, as its events are (#77):
+-- a state-only reset keeps them, a full one drops them.
+local driven = CreateFrame("Frame", nil, UIParent)
+RegisterStateDriver(driven, "visibility", "[combat] hide; show")
+WoW.reset({ keepFrames = true })
+WoW.combat = true
+WoW.fire("PLAYER_REGEN_DISABLED")
+WoW.step(0)
+check(not driven:IsShown(), "keepFrames: a state driver registered before is kept, and resolves")
+WoW.combat = false
+WoW.fire("PLAYER_REGEN_ENABLED")
+WoW.step(0)
+check(driven:IsShown(), "both ways")
+WoW.reset()
+eq(next(WoW.stateDrivers), nil, "a full reset drops the drivers")
+
 done("test_reset")

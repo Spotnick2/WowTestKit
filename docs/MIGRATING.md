@@ -333,8 +333,8 @@ its model is one the tests rely on.
 
 ### A state-only reset, a hook on every call, a frame's masks, intrinsics (WowTestKit #80, #81, #82, #85)
 
-- **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far,
-  `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
+- **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far
+  (with their state drivers, #77), `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
   emptied `WoW.frames` before the kit's reset, then put the three back) goes: call the kit's with
   `{ keepFrames = true }`. `WoW.reset()` with no opts is unchanged.
 - **A hook on every widget call** (#81): each function in `WoW.onMethodCall` runs as
