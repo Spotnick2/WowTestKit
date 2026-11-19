@@ -866,7 +866,8 @@ end
 -- Its handle has Cancel and IsCancelled, and the callback gets the handle
 -- (UITimerDocumentation: NewTicker's callback is a TickerCallback(cb)).
 -- - advance re-arms it at at + every, so a dt spanning several periods
---   fires it once per period (a 0-second ticker once per advance);
+--   fires it once per period (a 0-second ticker once per advance,
+--   advance(0) included: one advance is one frame for it);
 -- - flushTimers runs it once and re-arms it from now, so flushTimers() again
 --   runs it again: a loop flushing until WoW.timers is empty never ends
 --   while a ticker lives.
@@ -912,16 +913,20 @@ function WoW.flushTimers(upTo)
 end
 function WoW.advance(dt)
     WoW.now = (WoW.now or 0) + dt
+    local once = {}   -- the 0-second tickers this advance has fired
     while true do
         local due, at
         for i, t in ipairs(WoW.timers) do
             local tAt = t.at or t.s or 0
-            if tAt <= WoW.now and (not at or tAt < at) then due, at = i, tAt end
+            if tAt <= WoW.now and not once[t] and (not at or tAt < at) then due, at = i, tAt end
         end
         if not due then return end
         local t = table.remove(WoW.timers, due)
-        -- A 0-second ticker would fall due again at once: next advance.
-        local nextAt = t.every and t.every > 0 and at + t.every or WoW.now + 1e-9
+        -- A 0-second ticker is due again at once: on the client it fires once
+        -- a frame, so here once an advance, advance(0) included (WowTestKit
+        -- #76). It is re-armed at the time it fired, due at the next advance.
+        local nextAt = at + (t.every or 0)
+        if t.every and t.every <= 0 then once[t], nextAt = true, WoW.now end
         fireTimer(t, nextAt)   -- a cancelled one never fires
     end
 end

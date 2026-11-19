@@ -78,6 +78,26 @@ WoW.advance(1)
 WoW.advance(1)
 eq(z, 2, "a 0-second ticker fires once per advance")
 
+-- advance(0) too: the next frame with no time passing (#76: it fired only
+-- the first time, re-armed a nudge past the clock that advance(0) never moved).
+WoW.reset()
+WoW.now = 0
+local z0 = 0
+C_Timer.NewTicker(0, function() z0 = z0 + 1 end)
+for _ = 1, 5 do WoW.advance(0) end
+eq(z0, 5, "advance(0) fires a 0-second ticker every time")
+WoW.advance(10)
+eq(z0, 6, "a long advance still fires it once")
+eq(GetTime(), 10, "advance(0) never moved the clock")
+check(WoW.timers[1].at <= GetTime(), "it is re-armed at the time it fired, no nudge past the clock")
+WoW.reset()
+WoW.now = 0
+local z3 = 0
+C_Timer.NewTicker(0, function() z3 = z3 + 1 end, 3)
+for _ = 1, 5 do WoW.advance(0) end
+eq(z3, 3, "a 0-second ticker honours iterations under advance(0)")
+eq(#WoW.timers, 0, "then it's gone")
+
 -- Timers are unchanged: run once and dropped, with no argument.
 WoW.reset()
 WoW.now = 0
