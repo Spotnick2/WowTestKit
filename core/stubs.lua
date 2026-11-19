@@ -982,11 +982,27 @@ end
 -- frame registered it with RegisterUnitEvent) fires once per unit any frame
 -- registered it for, with that unit as its payload, so a handler that
 -- indexes by unit runs; plain registrations of it get each of those.
--- Returns the events fired, sorted.
-function WoW.fireAllRegistered()
+-- WoW.fireAllRegistered(units) (WowTestKit #94): a list of units for the
+-- plain registrations too, as the client sends a plainly registered unit
+-- event once per unit, with it as payload. An event some frame registered
+-- plainly fires once per unit in the list, as well as for its
+-- RegisterUnitEvent units; the kit can't tell a unit event from another, so
+-- every plain event gets them. Events in name order, each one's units in
+-- sorted order (once each); an event with no unit fires once with no
+-- payload, as without a list. Returns the events fired, sorted.
+function WoW.fireAllRegistered(plainUnits)
+    if plainUnits ~= nil and type(plainUnits) ~= "table" then
+        error("WoW.fireAllRegistered: units must be a list, got " .. type(plainUnits), 2)
+    end
     local seen, units = {}, {}
     for _, w in ipairs(WoW.frames) do
-        for e in pairs(w._events) do seen[e] = true end
+        for e in pairs(w._events) do
+            seen[e] = true
+            for _, u in ipairs(plainUnits or {}) do
+                units[e] = units[e] or {}
+                units[e][u] = true
+            end
+        end
         for e, set in pairs(w._unitEvents) do
             seen[e] = true
             units[e] = units[e] or {}

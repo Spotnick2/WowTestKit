@@ -180,7 +180,7 @@ SetClampedToScreen) and records `name:Method` in
   `WoW.strictLockdown` (an error at the call) moves there, as the dispatch refuses before a
   `Methods` wrapper runs.
 
-### Unit events (WowTestKit #17)
+### Unit events (WowTestKit #17, #94)
 
 `Frame:RegisterUnitEvent(event, unit1, unit2, …)` delivers the event only for those units;
 `IsEventRegistered` returns them; `WoW.fireAllRegistered()` fires a unit event once per registered
@@ -190,6 +190,11 @@ unit, with it as the payload.
   it hides the unit filter.
 - **`w._unitEvents[event]` is a set** (`{ target = true }`), not the unit string GlassUnitFrames'
   stub kept.
+- **`WoW.fireAllRegistered(units)` takes an optional list of units** (#94): every event a frame
+  registered plainly fires once per unit in it (sorted, each once, together with its
+  `RegisterUnitEvent` units), instead of once with no payload. Without the list, or with an
+  empty one, nothing changes. GlassRaidFrames' `-- WowTestKit #94:` `fireAllRegistered` goes:
+  pass it the units it modelled (`WoW.units` and `"player"`).
 
 ### Refused events (WowTestKit #79)
 

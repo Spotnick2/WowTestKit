@@ -60,4 +60,18 @@ eq(seen(), "p:PLAYER_LOGIN:nil p:UNIT_POWER_UPDATE:player plain:UNIT_POWER_UPDAT
     .. "p:UNIT_POWER_UPDATE:target plain:UNIT_POWER_UPDATE:target",
     "a plain event once with no payload, a unit event once per unit (sorted)")
 
+-- fireAllRegistered(units): plain registrations get each unit too (WowTestKit #94).
+list = WoW.fireAllRegistered({ "party1", "player", "party1" })
+eq(table.concat(list, ","), "PLAYER_LOGIN,UNIT_POWER_UPDATE", "with units it returns the same events")
+eq(seen(), "p:PLAYER_LOGIN:party1 p:PLAYER_LOGIN:player "
+    .. "plain:UNIT_POWER_UPDATE:party1 p:UNIT_POWER_UPDATE:player plain:UNIT_POWER_UPDATE:player "
+    .. "p:UNIT_POWER_UPDATE:target plain:UNIT_POWER_UPDATE:target",
+    "a plain event once per listed unit, joined with the unit registrations' units, each once, sorted")
+WoW.fireAllRegistered({})
+eq(seen(), "p:PLAYER_LOGIN:nil p:UNIT_POWER_UPDATE:player plain:UNIT_POWER_UPDATE:player "
+    .. "p:UNIT_POWER_UPDATE:target plain:UNIT_POWER_UPDATE:target",
+    "an empty list is as no list")
+local okUnits, errUnits = pcall(WoW.fireAllRegistered, "player")
+check(not okUnits and tostring(errUnits):find("units must be a list", 1, true), "a unit that isn't in a list throws, saying so")
+
 done("test_unit_events")
