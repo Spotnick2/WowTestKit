@@ -1394,9 +1394,16 @@ end
 -- One edge of a click on a button, as the client runs it: PreClick, OnClick
 -- (a wrap's snippets and the secure action inside it), PostClick. A disabled
 -- button doesn't click. Button:Click(button, down) does the same.
+-- A CheckButton's click toggles its checked state first, so OnClick reads
+-- the new one (WowTestKit #87; Blizzard's handlers rely on it:
+-- CinematicsMenuSubtitlesCheckboxMixin:OnClick saves self:GetChecked(),
+-- Blizzard_GlueXML/Mainline/CinematicsMenu.lua:276, wow-ui-source forever
+-- 70959). Unmeasured: whether PreClick already sees it, and which edge of
+-- a mouse click toggles; here each call is one click, and toggles once.
 function WoW.click(b, button, down)
     button, down = button or "LeftButton", down and true or false
     if b._disabled then return end
+    if b._type == "CheckButton" then b._checked = not b._checked end
     if b._scripts.PreClick then b._scripts.PreClick(b, button, down) end
     if b._scripts.OnClick then b._scripts.OnClick(b, button, down) end
     if b._scripts.PostClick then b._scripts.PostClick(b, button, down) end

@@ -232,7 +232,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Smaller ones (WowTestKit #7, #38, #41, #62)
+### Smaller ones (WowTestKit #7, #38, #41, #62, #87)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
@@ -244,3 +244,8 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   `WoW.reset()`. AltStable's, LibGroupBuffs' and Gnomesweeper's own `GetLocale` stubs can go (one
   kept after the kit's still wins). `Kit.checkCore()` checks it too, so a file that calls it
   gains two checks.
+- **A click on a CheckButton toggles its checked state before PreClick and OnClick** (#87), as
+  Blizzard's check box handlers expect: `WoW.click(b)` / `b:Click()` on an enabled CheckButton,
+  each call once. GlassGear's `-- WowTestKit #87:` override of `Methods.Click` goes. A test that
+  clicked a check box and asserted the old state, or clicked both edges (`down` true, then
+  false) of one click, now sees it toggled (twice for the two edges).
