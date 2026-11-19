@@ -107,8 +107,15 @@ local function counted(ok, ...)
     return ok, ...
 end
 function pcall(f, ...) return counted(rawpcall(f, ...)) end
-function xpcall(f, handler)
-    return rawxpcall(f, function(err) countSecret(err); return handler(err) end)
+-- The client's xpcall passes its extra arguments to f, as Lua 5.1's doesn't
+-- (WowTestKit #91; Blizzard relies on it: xpcall(script, CallErrorHandler,
+-- frame, ...), Blizzard_SharedXMLBase/FunctionUtil.lua:4, wow-ui-source
+-- forever 70959).
+function xpcall(f, handler, ...)
+    local n, args = select("#", ...), { ... }
+    local call = f
+    if n > 0 then call = function() return f(unpack(args, 1, n)) end end
+    return rawxpcall(call, function(err) countSecret(err); return handler(err) end)
 end
 
 --------------------------------------------------------------------------------

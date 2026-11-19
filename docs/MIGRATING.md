@@ -232,7 +232,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Smaller ones (WowTestKit #7, #38, #41, #62, #87)
+### Smaller ones (WowTestKit #7, #38, #41, #62, #87, #91)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
@@ -249,3 +249,6 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   each call once. GlassGear's `-- WowTestKit #87:` override of `Methods.Click` goes. A test that
   clicked a check box and asserted the old state, or clicked both edges (`down` true, then
   false) of one click, now sees it toggled (twice for the two edges).
+- **`xpcall(f, handler, ...)` passes `...` to `f`** (#91), as the client's does, and still counts a
+  swallowed secret touch. Gnomesweeper's and AltStable's `xpcall` overrides go (Gnomesweeper's is
+  `-- WowTestKit #91:`).
