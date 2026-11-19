@@ -2,6 +2,12 @@
 -- calls it, then checks what is its own (IDs, load order, libraries).
 --
 --   Kit.checkToc("GlassChat.toc", { interface = 16001, dir = "" })
+--
+-- The version line is the packager's token, @project-version@. An addon
+-- that's never packaged names its own (WowTestKit #84), checked as the
+-- whole line:
+--
+--   Kit.checkToc("ForeverProbe.toc", { version = "dev" })   -- ## Version: dev
 
 function Kit.checkToc(toc, opts)
     opts = opts or {}
@@ -12,7 +18,13 @@ function Kit.checkToc(toc, opts)
     local interface = tostring(opts.interface or 16001)
     check(text:find("## Interface: " .. interface .. "\r?\n") or text:find("## Interface: " .. interface .. "$"),
         toc .. ": interface " .. interface .. (interface == "16001" and " (1.60.1; 11601 is the transposed-digit bug)" or ""))
-    check(text:find("## Version: @project-version@", 1, true), toc .. ": packager version token kept")
+    if opts.version then
+        local v = tostring(opts.version)
+        local line = "## Version: " .. (v:gsub("%p", "%%%0"))   -- as written: "1.0" isn't "1x0"
+        check(text:find(line .. "\r?\n") or text:find(line .. "$"), toc .. ": version " .. v)
+    else
+        check(text:find("## Version: @project-version@", 1, true), toc .. ": packager version token kept")
+    end
     local seen = {}
     for _, line in ipairs(Kit.tocLines(dir .. toc)) do
         local path = dir .. line:gsub("\\", "/")

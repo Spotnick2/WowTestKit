@@ -237,7 +237,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Smaller ones (WowTestKit #7, #38, #41, #62, #87, #91)
+### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
   `-- WowTestKit #7:` block goes.
@@ -257,3 +257,6 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
 - **`xpcall(f, handler, ...)` passes `...` to `f`** (#91), as the client's does, and still counts a
   swallowed secret touch. Gnomesweeper's and AltStable's `xpcall` overrides go (Gnomesweeper's is
   `-- WowTestKit #91:`).
+- **`Kit.checkToc` takes `{ version = "dev" }`** (#84) for an addon that's never packaged: it
+  checks that whole `## Version:` line instead of the packager's token (the default, unchanged).
+  ForeverProbe's `-- WowTestKit #84:` checks go.
