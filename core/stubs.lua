@@ -1324,14 +1324,16 @@ end
 -- Secure snippets run on Forever since 70425, in combat too (porting guide,
 -- "Secure click-casting works").
 --
--- Modelled: SecureHandlerWrapScript / UnwrapScript on OnClick,
--- SecureHandlerSetFrameRef, SecureHandlerExecute, one environment per
--- protected frame, frame handles with the methods below, the secure action
--- button's own click (WoW.secureActionClick, with modified attributes:
--- *type1, shift-type1..., #88), and WoW.click / WoW.pressKey to drive them.
--- Not modelled: other wrapped scripts, the header templates' own snippet
--- attributes (_onclick, _onstate-...), and a snippet's error being caught
--- (here it fails the test).
+-- Modelled: SecureHandlerWrapScript / UnwrapScript on OnClick, OnEnter,
+-- OnLeave, OnShow and OnHide (#93), SecureHandlerSetFrameRef,
+-- SecureHandlerExecute, one environment per protected frame, frame handles
+-- with the methods below, the secure action button's own click
+-- (WoW.secureActionClick, with modified attributes: *type1, shift-type1...,
+-- #88), and WoW.click / WoW.pressKey / WoW.enter / WoW.leave to drive them.
+-- Not modelled: other wrapped scripts (OnDoubleClick, PreClick, PostClick,
+-- OnDragStart, OnReceiveDrag, OnMouseWheel, OnAttributeChanged), the header
+-- templates' own snippet attributes (_onclick, _onstate-...), and a
+-- snippet's error being caught (here it fails the test).
 --------------------------------------------------------------------------------
 
 -- Templates that make a frame explicitly protected. A consumer that defines
@@ -1558,6 +1560,16 @@ function HANDLE:RunAttribute(attr, ...)
     if type(body) ~= "string" then error("Invalid snippet body", 2) end
     return runSnippet(envOf(w), w, "self,...", body, self, ...)
 end
+-- A snippet run in this frame's environment, with this handle as control
+-- and another frame's handle (or nil) as self (RestrictedFrames.lua:725).
+function HANDLE:RunFor(other, body, ...)
+    local w = frameOf(self)
+    if other ~= nil and not (type(other) == "userdata" and handleFrame[other]) then
+        error("Invalid handle for other frame", 2)
+    end
+    if type(body) ~= "string" then error("Invalid function body", 2) end
+    return runSnippet(envOf(w), w, "self,...", body, other, ...)
+end
 -- Override bindings owned by the frame (SetOverrideBindingClick's), in
 -- WoW.overrideBindings[key] = { owner, name, button, priority }.
 function HANDLE:SetBindingClick(priority, key, name, button)
@@ -1625,17 +1637,70 @@ local function wrappedClick(wrap, self, button, down, ...)
     end
 end
 
+-- Wrapped_OnEnter / Wrapped_OnLeave (SecureHandlers.lua:292, :312, #93):
+-- the pre snippet runs (self only) when motion is true, an enter marks the
+-- frame entered (its _wrapentered attribute, set from secure code), and a
+-- leave runs it only on an entered frame and clears the mark; false
+-- cancels. Then the script that was there (with motion), then the post
+-- snippet (self, message) when the pre gave a message.
+local function wrappedEnter(wrap, self, motion, ...)
+    local allow, message
+    if motion then
+        self._attrs = self._attrs or {}
+        self._attrs._wrapentered = true
+        if not WoW.combat or isProtected(self) then
+            allow, message = runSnippet(envOf(wrap.header), wrap.header, "self", wrap.pre, handleOf(self))
+        end
+        if allow == false then return end
+    end
+    if wrap.old then wrap.old(self, motion, ...) end
+    if wrap.post and message ~= nil then
+        runSnippet(envOf(wrap.header), wrap.header, "self,message", wrap.post, handleOf(self), message)
+    end
+end
+local function wrappedLeave(wrap, self, motion, ...)
+    local allow, message
+    if motion and self._attrs and self._attrs._wrapentered then
+        self._attrs._wrapentered = nil
+        if not WoW.combat or isProtected(self) then
+            allow, message = runSnippet(envOf(wrap.header), wrap.header, "self", wrap.pre, handleOf(self))
+            if allow == false then return end
+        end
+    end
+    if wrap.old then wrap.old(self, motion, ...) end
+    if wrap.post and message ~= nil then
+        runSnippet(envOf(wrap.header), wrap.header, "self,message", wrap.post, handleOf(self), message)
+    end
+end
+-- Wrapped_ShowHide (SecureHandlers.lua:349, #93): the pre snippet (self)
+-- when eligible, false cancels, the script, the post (self, message).
+local function wrappedShowHide(wrap, self, ...)
+    local allow, message
+    if not WoW.combat or isProtected(self) then
+        allow, message = runSnippet(envOf(wrap.header), wrap.header, "self", wrap.pre, handleOf(self))
+        if allow == false then return end
+    end
+    if wrap.old then wrap.old(self, ...) end
+    if wrap.post and message ~= nil then
+        runSnippet(envOf(wrap.header), wrap.header, "self,message", wrap.post, handleOf(self), message)
+    end
+end
+-- The scripts the core wraps (SecureHandlers.lua:396's LOCAL_Wrap_Handlers).
+local WRAPPERS = { OnClick = wrappedClick, OnEnter = wrappedEnter, OnLeave = wrappedLeave,
+                   OnShow = wrappedShowHide, OnHide = wrappedShowHide }
+
 local wraps = setmetatable({}, { __mode = "k" })   -- wrapper function -> its wrap
 function SecureHandlerWrapScript(frame, script, header, preBody, postBody)
     if type(frame) ~= "table" then error("Invalid frame", 2) end
     if type(script) ~= "string" then error("Invalid script id", 2) end
-    if script ~= "OnClick" then error("WowTestKit wraps OnClick only (#20): " .. script, 2) end
+    local wrapper = WRAPPERS[script]
+    if not wrapper then error("WowTestKit wraps OnClick, OnEnter, OnLeave, OnShow and OnHide only (#93): " .. script, 2) end
     if type(header) ~= "table" or not header._protected then error("Header frame must be explicitly protected", 2) end
     if type(preBody) ~= "string" then error("Invalid pre-handler body", 2) end
     if postBody ~= nil and type(postBody) ~= "string" then error("Invalid post-handler body", 2) end
     if apiRefused("SecureHandlerWrapScript") then return end
     local wrap = { header = header, pre = preBody, post = postBody, old = frame._scripts[script] }
-    local fn = function(self, ...) return wrappedClick(wrap, self, ...) end
+    local fn = function(self, ...) return wrapper(wrap, self, ...) end
     wraps[fn] = wrap
     frame._scripts[script] = fn
 end
@@ -1776,6 +1841,19 @@ function WoW.pressKey(key, down)
     if not target then error("no frame named " .. tostring(b.name) .. " for the binding of " .. key, 2) end
     WoW.click(target, b.button or "LeftButton", down)
     return true
+end
+
+-- The pointer enters or leaves a frame (#93): its OnEnter / OnLeave with
+-- motion (true unless given: a mouse move; false is a frame appearing under
+-- or leaving the cursor). Whether the frame takes the mouse isn't checked,
+-- and IsMouseOver doesn't follow (w._mouseOver).
+function WoW.enter(w, motion)
+    if motion == nil then motion = true end
+    if w._scripts.OnEnter then w._scripts.OnEnter(w, motion) end
+end
+function WoW.leave(w, motion)
+    if motion == nil then motion = true end
+    if w._scripts.OnLeave then w._scripts.OnLeave(w, motion) end
 end
 
 -- The cursor, in screen pixels (GetCursorPosition). A stub may set it, or

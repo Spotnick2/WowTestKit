@@ -242,6 +242,13 @@ templates (`SecureActionButtonTemplate`'s OnClick is the secure action, `WoW.sec
   with no `type` (or for a right click on a `*type1` button) counts one less. With
   `WoW.useKeyHeldSpell` (the `ActionButtonUseKeyHeldSpell` CVar, off by default) or a
   `pressAndHoldAction` attribute, the up edge acts on `typerelease` (`release = true`).
+- **`SecureHandlerWrapScript` wraps `OnEnter`, `OnLeave`, `OnShow` and `OnHide` too** (#93), as
+  the client does; other scripts but `OnClick` are still refused. GlassRaidFrames'
+  `-- WowTestKit #93:` wrap, execute and frame-ref stubs go, and its tests drive the snippets
+  through the kit: `WoW.enter(frame)` / `WoW.leave(frame)` run `OnEnter` / `OnLeave` with
+  `motion` (true unless given). The enter and leave pre snippets get `self` only (no `motion`),
+  run only on a motion, and a leave's only after an enter (`_wrapentered`). Handles have
+  `control:RunFor(otherHandle, body, ...)`.
 
 ### A fresh client (WowTestKit #8, #45, #48)
 
