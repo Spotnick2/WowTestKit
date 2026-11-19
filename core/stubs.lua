@@ -154,6 +154,7 @@ function WoW.reset()
     WoW.secureActions = {}      -- what secure buttons did (WowTestKit #20)
     WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
     WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
+    WoW.focus = nil             -- the edit box with the keyboard focus (WowTestKit #89)
     for _, fn in ipairs(WoW.onReset) do fn() end
 end
 
@@ -342,6 +343,7 @@ function CreateFrame(ftype, name, parent, template)
     w._template = template
     w._frame = true   -- a frame, not a region (SetParent moves it between children)
     if ftype == "StatusBar" then w._min, w._max, w._value = 0, 1, 0 end
+    if ftype == "GameTooltip" then w._lines, w._linesRight = {}, {} end   -- no lines yet (#89)
     if template then
         for t in template:gmatch("[^,%s]+") do
             local build = WoW.templates[t]
@@ -442,6 +444,8 @@ function Methods.GetPoint(w, i)
     local p = w._points[i or 1]
     if p then return p[1], p[2], p[3], p[4], p[5] end
 end
+-- The anchors GetPoint reads (WowTestKit #89).
+function Methods.GetNumPoints(w) return #w._points end
 function Methods.SetAllPoints(w, rel)
     if refused(w, "SetAllPoints") then return end   -- a re-anchor, like SetPoint
     table.insert(w._points, { "ALL", rel })
@@ -455,6 +459,12 @@ function Methods.GetHeight(w) return w._height end
 -- SetSize / SetWidth / SetHeight set, as GetWidth and GetHeight read it.
 -- Its ignoreRect argument changes nothing here (no layout).
 function Methods.GetSize(w) return w._width, w._height end
+-- The widget's own scale, 1 until set (WowTestKit #89); a frame's and a
+-- region's (SimpleFrameAPI, SimpleRegionAPI). GetEffectiveScale multiplies
+-- it up the parents (below). SetScale is refused in combat on a protected
+-- frame (WoW.PROTECTED).
+function Methods.SetScale(w, s) w._scale = s end
+function Methods.GetScale(w) return w._scale or 1 end
 -- A texture with a gradient ignores SetAlpha, in either order (measured on
 -- 70374, porting guide section 3, "A gradient texture ignores SetAlpha"; LibGlass
 -- r7 probe): GetAlpha reads 1 and the gradient's colours alone set its alpha.
@@ -498,6 +508,20 @@ function Methods.EnableMouse(w, v) w._mouse = v end
 function Methods.IsMouseEnabled(w) return w._mouse == true end
 function Methods.SetMouseClickEnabled(w, on) w._clicks = on == true end
 function Methods.SetMouseMotionEnabled(w, on) w._motion = on == true end
+-- The drag state a test reads (WowTestKit #89): w._moving from StartMoving,
+-- w._sizing from StartSizing (w._sizingPoint its resize point), both false
+-- after StopMovingOrSizing. The frame doesn't follow the cursor, and
+-- StartMoving on a frame that isn't movable isn't refused (unmeasured).
+-- StartMoving and StopMovingOrSizing are refused in combat on a protected
+-- frame (WoW.PROTECTED), so a drag stopped then stays on. SetResizeBounds
+-- is kept as given in w._resizeBounds ({ minW, minH, maxW, maxH }); sizes
+-- aren't clamped to it.
+function Methods.SetMovable(w, on) w._movable = on == true end
+function Methods.IsMovable(w) return w._movable == true end
+function Methods.StartMoving(w) w._moving = true end
+function Methods.StartSizing(w, point) w._sizing, w._sizingPoint = true, point end
+function Methods.StopMovingOrSizing(w) w._moving, w._sizing, w._sizingPoint = false, false, nil end
+function Methods.SetResizeBounds(w, minW, minH, maxW, maxH) w._resizeBounds = { minW, minH, maxW, maxH } end
 function Methods.GetName(w) return w._name end
 function Methods.GetDebugName(w) return w._name or ("<" .. w._type .. ">") end
 function Methods.GetObjectType(w) return w._type end
@@ -548,8 +572,8 @@ end
 -- sets, in the widget's own units, nil while unset (no rect yet, as on the
 -- client before layout). w._left, w._right, w._top, w._bottom are the
 -- edges; GetCenter is their midpoint, nil unless all four are set.
--- w._escale is the effective scale, 1 unset. A test may put a secret in any
--- of them; GetCenter then returns secrets. The core's secure handles read
+-- w._escale, set, is the effective scale (below). A test may put a secret
+-- in any of them; GetCenter then returns secrets. The core's secure handles read
 -- these through the same methods ($cursor, GetMousePosition).
 function Methods.GetLeft(w) return w._left end
 function Methods.GetRight(w) return w._right end
@@ -563,7 +587,18 @@ function Methods.GetCenter(w)
     end
     return (l + r) / 2, (b + t) / 2
 end
-function Methods.GetEffectiveScale(w) if w._escale == nil then return 1 end return w._escale end
+-- Unset, it's the product of every SetScale up the parents, the widget's own
+-- included (WowTestKit #89; porting guide, "GetCenter is in the frame's OWN
+-- space": the client's GetScaledCenter does this, FrameUtil.lua:226), so 1
+-- while nothing is scaled. A set w._escale wins over the chain.
+function Methods.GetEffectiveScale(w)
+    if w._escale ~= nil then return w._escale end
+    local s, p, depth = 1, w, 0
+    while p and depth < 64 do   -- a stub's cycle can't hang the test
+        s, p, depth = s * (p._scale or 1), p._parent, depth + 1
+    end
+    return s
+end
 -- The pointer over the widget: w._mouseOver (true, or a secret, as the
 -- dump's SecretWhenAnchoringSecret allows). The offsets aren't modelled.
 function Methods.IsMouseOver(w)
@@ -665,6 +700,9 @@ function Methods.GetRegions(w) return unpack(w._regions or {}) end
 
 -- Textures: one source at a time, as on the client (a file, an atlas or a colour).
 function Methods.SetTexture(t, file) t._file, t._atlas, t._color = file, nil, nil; return true end
+-- The file SetTexture set, nil for an atlas or a colour (WowTestKit #89;
+-- what the client returns for an atlas isn't measured).
+function Methods.GetTexture(t) return t._file end
 -- No return value (the dump declares none): ask C_Texture.GetAtlasInfo first.
 function Methods.SetAtlas(t, name) t._atlas, t._file, t._color = name, nil, nil end
 function Methods.SetColorTexture(t, r, g, b, a) t._color = { r, g, b, a }; t._file, t._atlas = nil, nil end
@@ -701,6 +739,8 @@ end
 -- The error names the caller's line: level 3, since the method dispatch
 -- tail-calls this, and Lua 5.1 leaves a tail-call frame at level 2.
 function Methods.SetText(fs, text)
+    -- A GameTooltip's text is its first line, the others cleared (its lines, below).
+    if fs._type == "GameTooltip" then fs._lines, fs._linesRight = { text }, {}; return end
     if fs._type == "FontString" and fs._font == nil and fs._fontObject == nil and fs._fontTemplate == nil then
         error("FontString:SetText(): Font not set", 3)
     end
@@ -708,6 +748,33 @@ function Methods.SetText(fs, text)
     if fs._type == "EditBox" and fs._scripts.OnTextChanged then fs._scripts.OnTextChanged(fs, false) end
 end
 function Methods.GetText(fs) return fs._text end
+-- String metrics (WowTestKit #89). The client measures the text in its font;
+-- the core can't, so these are a deterministic APPROXIMATION, not measured:
+-- 6 units per character (bytes, escape codes included) and 14 per line.
+-- GetStringWidth is the longest line's ("\n" breaks a line), not wrapped.
+-- GetStringHeight wraps each line at the width set (SetWidth / SetSize:
+-- floor(width / 6) characters a line), unwrapped with no width; 0 with no
+-- text. A secret text (SetFormattedText) reads as none. A consumer that
+-- needs other numbers replaces WoW.Methods.GetStringWidth / GetStringHeight.
+local function textLines(fs)
+    local text = fs._text
+    if type(text) == "number" then text = tostring(text) end
+    if type(text) ~= "string" or text == "" then return {} end
+    local lines = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
+    return lines
+end
+function Methods.GetStringWidth(fs)
+    local widest = 0
+    for _, line in ipairs(textLines(fs)) do widest = math.max(widest, #line) end
+    return widest * 6
+end
+function Methods.GetStringHeight(fs)
+    local perLine = (fs._width or 0) > 0 and math.max(1, math.floor(fs._width / 6)) or math.huge
+    local n = 0
+    for _, line in ipairs(textLines(fs)) do n = n + math.max(1, math.ceil(#line / perLine)) end
+    return n * 14
+end
 -- The client formats natively and accepts secrets: with any secret argument,
 -- the arguments are kept unformatted instead of calling string.format (which
 -- would throw on the proxy).
@@ -754,6 +821,10 @@ function Methods.Enable(b) b._disabled = false end
 function Methods.Disable(b) b._disabled = true end
 function Methods.SetEnabled(b, v) b._disabled = not v end
 function Methods.IsEnabled(b) return not b._disabled end
+-- The clicks the button takes, as given (WowTestKit #89): w._registeredClicks,
+-- { "AnyUp" } or { "LeftButtonDown", "RightButtonDown" }; a later call
+-- replaces them. Refused in combat on a protected button (WoW.PROTECTED).
+function Methods.RegisterForClicks(b, ...) b._registeredClicks = { ... } end
 -- A button's state textures (WowTestKit #70): Set<State>Texture(asset)
 -- sets the file on the button's own texture for that state, a Texture made
 -- on first use with the button as parent, as SetTexture does (one source at
@@ -787,6 +858,8 @@ function Methods.GetChecked(b) return b._checked == true end
 -- StatusBar and Slider. A slider's SetValue fires OnValueChanged on a change,
 -- as the client's does.
 function Methods.SetMinMaxValues(b, lo, hi) b._min, b._max = lo, hi end
+-- 0, 0 until set (WowTestKit #89); a StatusBar starts at 0, 1 (CreateFrame).
+function Methods.GetMinMaxValues(b) return b._min or 0, b._max or 0 end
 function Methods.GetValue(b) return b._value end
 function Methods.SetValue(b, v)
     local old = b._value
@@ -829,6 +902,73 @@ function Methods.CreateActor(scene, name, template)
     table.insert(scene._actors, a)
     return a
 end
+
+-- GameTooltip's own (C) lines and owner (WowTestKit #89), the model
+-- Shatter's, GlassMiniMap's, GlassPanel's, GlassPearls' and GlassUI's stubs
+-- shared; not measured on Forever. tt._lines holds each line's left text, in
+-- order, and tt._linesRight[i] the right text of an AddDoubleLine (nil for a
+-- single line). Colours and wrapping aren't kept. SetText (above) makes the
+-- text the only line; SetOwner takes the owner and clears the lines, as
+-- re-owning a tooltip starts it again; ClearLines clears them. Neither
+-- shows or hides the tooltip. The setters from TooltipDataHandlerMixin
+-- (SetItemByID...) are Lua and the consumer's (Kit.allowMethods).
+local function tooltipLines(tt)
+    tt._lines, tt._linesRight = tt._lines or {}, tt._linesRight or {}
+    return tt._lines, tt._linesRight
+end
+function Methods.SetOwner(tt, owner, anchor, x, y)
+    tt._owner, tt._ownerAnchor = owner, { anchor, x, y }
+    tt._lines, tt._linesRight = {}, {}
+end
+function Methods.GetOwner(tt) return tt._owner end
+function Methods.AddLine(tt, text)
+    local left = tooltipLines(tt)
+    left[#left + 1] = text
+end
+function Methods.AddDoubleLine(tt, leftText, rightText)
+    local left, right = tooltipLines(tt)
+    left[#left + 1] = leftText
+    right[#left] = rightText
+end
+function Methods.ClearLines(tt) tt._lines, tt._linesRight = {}, {} end
+function Methods.NumLines(tt) return #(tt._lines or {}) end
+
+-- ScrollFrame (WowTestKit #89): the scroll child as set (not reparented
+-- here), and the vertical offset, 0 until set. A change fires the frame's
+-- OnVerticalScroll(offset): Blizzard's scroll bars rely on it (the bar's
+-- OnValueChanged only calls SetVerticalScroll, and the frame's
+-- OnVerticalScroll updates the bar and its buttons: SecureScrollTemplates.lua
+-- :23 and :134, wow-ui-source forever 70959; read, not measured). The
+-- offset isn't clamped. GetVerticalScrollRange reads w._yrange, a test's,
+-- 0 unset.
+function Methods.SetScrollChild(sf, child) sf._scrollChild = child end
+function Methods.GetScrollChild(sf) return sf._scrollChild end
+function Methods.SetVerticalScroll(sf, offset)
+    local old = sf._verticalScroll or 0
+    sf._verticalScroll = offset
+    if offset ~= old and sf._scripts.OnVerticalScroll then sf._scripts.OnVerticalScroll(sf, offset) end
+end
+function Methods.GetVerticalScroll(sf) return sf._verticalScroll or 0 end
+function Methods.GetVerticalScrollRange(sf) return sf._yrange or 0 end
+
+-- EditBox focus (WowTestKit #89): one edit box at a time has the keyboard
+-- focus, WoW.focus (the client's GetCurrentKeyBoardFocus is one frame).
+-- SetFocus takes it from the one that had it (its OnEditFocusLost first),
+-- then fires OnEditFocusGained; ClearFocus fires OnEditFocusLost. Each only
+-- on a change. Which script runs first isn't measured, and hiding an edit
+-- box doesn't take its focus here (unmodelled). WoW.reset() clears it.
+function Methods.SetFocus(e)
+    if WoW.focus == e then return end
+    if WoW.focus then Methods.ClearFocus(WoW.focus) end
+    WoW.focus = e
+    if e._scripts.OnEditFocusGained then e._scripts.OnEditFocusGained(e) end
+end
+function Methods.ClearFocus(e)
+    if WoW.focus ~= e then return end
+    WoW.focus = nil
+    if e._scripts.OnEditFocusLost then e._scripts.OnEditFocusLost(e) end
+end
+function Methods.HasFocus(e) return WoW.focus == e end
 
 --------------------------------------------------------------------------------
 -- Globals the mechanics need (each in the dump's _G walk; UIParent is

@@ -237,7 +237,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Widget methods the stubs had (WowTestKit #78)
+### Widget methods the stubs had (WowTestKit #78, #89)
 
 The core now implements methods most consumers had in their own stub. Each read as a method
 before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
@@ -246,6 +246,29 @@ its model is one the tests rely on.
 - **`GetSize()` returns the width and height** (#78), as `GetWidth` / `GetHeight` read them. The
   `-- WowTestKit #78:` one-liners go (Apotheca, GlassMiniMap, GlassMiniMapBar, GlassQuestTracker,
   GlassUI, NodeRadar, PortalRoulette, Shatter, Stakeout).
+- **The `-- WowTestKit #89:` methods** (Shatter, GlassRaidFrames, Gnomesweeper, TimeIsMoney):
+  `GetNumPoints`, `SetScale` / `GetScale` (1 until set), `SetMovable` / `IsMovable`,
+  `StartMoving` / `StartSizing` / `StopMovingOrSizing` (`_moving`, `_sizing`),
+  `SetResizeBounds` (`_resizeBounds`), `RegisterForClicks`, the ScrollFrame's scroll child and
+  vertical scroll, EditBox focus, GameTooltip's lines and owner, `GetTexture`, `GetMinMaxValues`
+  (0, 0 until set), and `GetStringWidth` / `GetStringHeight`. Where a stub's names differ, its
+  tests move to the core's:
+  - `RegisterForClicks` keeps the clicks in `_registeredClicks` (`_clicks` is
+    `SetMouseClickEnabled`'s already): TimeIsMoney and GlassRaidFrames read `_clicks`.
+  - `GetVerticalScrollRange` reads a test's `_yrange` (Shatter's `_vscrollRange`, Apotheca's
+    `_vrange`), and `SetVerticalScroll` fires `OnVerticalScroll` on a change.
+  - A tooltip's lines are `_lines` (left texts) and `_linesRight` (an `AddDoubleLine`'s right
+    text): a test that read a double line as one `"left|right"` or `"left\tright"` string reads
+    the two. `SetOwner` clears the lines and `SetText` makes its text the only line (Shatter's
+    model); TimeIsMoney's, whose `SetOwner` kept them and which kept them in `lines`, differs.
+  - **One edit box has the focus at a time** (`WoW.focus`): `SetFocus` on another fires the first
+    one's `OnEditFocusLost`.
+  - **The string metrics are an approximation** (6 units a character, 14 a line, wrapped at the
+    width set): a test that asserted a stub's own numbers keeps its stub's method.
+- **`GetEffectiveScale` follows `SetScale`** (#89): unset, it's the product of the scales up the
+  parents (porting guide, "GetCenter is in the frame's OWN space"), so 1 only while nothing is
+  scaled. A test's `_escale` still wins. A test that scaled a frame and expected 1 sets `_escale`;
+  Gnomesweeper's chain goes.
 
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
