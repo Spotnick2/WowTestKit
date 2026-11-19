@@ -261,13 +261,26 @@ local function log(self, k, ...)
     l[#l + 1] = { k, n = select("#", ...), ... }
 end
 
+-- A hook on every widget call (WowTestKit #81): each function in
+-- WoW.onMethodCall runs as fn(widget, methodName, ...) on every call made
+-- through a widget's methods, after the record and the log, before the
+-- combat refusal, so it sees a call that will be refused too, and can read
+-- WoW.combat and WoW.isProtected(widget) as they are at the call. What it
+-- returns is ignored; an error it raises fails the call. Like w._log, it
+-- doesn't see a Methods implementation one stub function calls directly. A
+-- call the hook makes on a widget runs the hooks again. WoW.reset keeps the
+-- list (the stub adds its hooks once, as with WoW.onReset); a fresh client
+-- starts with an empty one, which the consumer's stub fills again.
+WoW.onMethodCall = {}
+
 -- A method: records "Type:Method" for the widget it's called on, logs the
--- call, refuses a protected one in combat, then runs the implementation (nil
--- without one).
+-- call, runs the WoW.onMethodCall hooks, refuses a protected one in combat,
+-- then runs the implementation (nil without one).
 local function method(k)
     return function(self, ...)
         record(self, k)
         log(self, k, ...)
+        for _, fn in ipairs(WoW.onMethodCall) do fn(self, k, ...) end
         if WoW.PROTECTED[k] and WoW.refused(self, k) then return nil end
         local impl = Methods[k]
         if impl then return impl(self, ...) end

@@ -52,13 +52,18 @@ Local runs and CI use the same pinned commit. The local copy is cached in
 
 An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
 
-## Resets
+## Resets and call hooks
 
 - **`WoW.reset()`** clears the client's state and discards every frame made so far (events and
   OnUpdate no longer reach them): for a suite that loads the addon again after each reset.
   **`WoW.reset({ keepFrames = true })`** keeps the frames (with their parents and children),
   `WoW.widgets` and `WoW.methodsCalled`, and clears the rest: for a file that loads the addon once
   and resets between sections. Each `WoW.onReset` function gets the same opts.
+- **`WoW.onMethodCall`** is a list of functions run as `fn(widget, methodName, ...)` on every call
+  made through a widget's methods, after the call is recorded and logged (`w._log`), before the
+  combat refusal: a refused call is seen too, with `WoW.combat` and `WoW.isProtected(widget)` as
+  they are at the call. `table.insert(WoW.onMethodCall, fn)` in the stub; `WoW.reset` keeps the
+  list, a fresh client starts with an empty one.
 
 ## A new client build
 

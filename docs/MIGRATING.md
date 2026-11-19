@@ -307,9 +307,18 @@ its model is one the tests rely on.
   lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
   `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.
 
-### A state-only reset (WowTestKit #80)
+### A state-only reset, a hook on every call (WowTestKit #80, #81)
 
 - **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far,
   `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
   emptied `WoW.frames` before the kit's reset, then put the three back) goes: call the kit's with
   `{ keepFrames = true }`. `WoW.reset()` with no opts is unchanged.
+- **A hook on every widget call** (#81): each function in `WoW.onMethodCall` runs as
+  `fn(widget, methodName, ...)`, before the combat refusal. LibGroupBuffs' `-- WowTestKit #81:`
+  workaround (a metatable on `WoW.PROTECTED` answering truthy for every state write, and a wrapped
+  `WoW.refused` that recorded the touch, then refused only what `rawget(WoW.PROTECTED, method)`
+  names) goes: `WoW.PROTECTED` and `WoW.refused` stay the kit's, and `WoW.combatTouches` is filled
+  by a hook that returns unless `WoW.combat` and `WoW.isProtected(widget)`, skips `SetScript` /
+  `HookScript`, and records `name:Method` for a state write (`Show`, `Hide`, `EnableMouse`,
+  `Raise`, `Lower`, `Set*`, `Start*`, `Stop*`, `Clear*`). The stub clears `WoW.combatTouches` in a
+  `WoW.onReset` function; the hook itself survives `WoW.reset`.
