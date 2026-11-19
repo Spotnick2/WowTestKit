@@ -52,7 +52,7 @@ Local runs and CI use the same pinned commit. The local copy is cached in
 
 An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
 
-## Resets, call hooks and masks
+## Resets, call hooks, masks and intrinsics
 
 - **`WoW.reset()`** clears the client's state and discards every frame made so far (events and
   OnUpdate no longer reach them): for a suite that loads the addon again after each reset.
@@ -67,6 +67,11 @@ An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is 
 - **`f._maskTextures`** lists the masks a frame made with `CreateMaskTexture`, in creation order
   (a texture's `t._masks` are the masks `AddMaskTexture` put on it). They aren't in `f._regions`,
   so `GetRegions()` doesn't return them: whether the client's does is unmeasured.
+- **`WoW.INTRINSIC`** maps each XML intrinsic Blizzard's source declares (`EventFrame`,
+  `DropdownButton`, `ItemButton`, …) to its base type: `CreateFrame("DropdownButton")` makes a
+  `Button` (`w._type`), keeps the name asked for in `w._intrinsic`, and its calls are recorded on
+  `Button`, so the mixin's methods are `Kit.allowMethods` entries on the base type
+  (`["Button:SetupMenu"]`). A consumer adds its own: `WoW.INTRINSIC.MyIntrinsic = "Frame"`.
 
 ## A new client build
 

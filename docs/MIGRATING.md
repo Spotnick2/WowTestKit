@@ -307,7 +307,7 @@ its model is one the tests rely on.
   lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
   `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.
 
-### A state-only reset, a hook on every call, a frame's masks (WowTestKit #80, #81, #82)
+### A state-only reset, a hook on every call, a frame's masks, intrinsics (WowTestKit #80, #81, #82, #85)
 
 - **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far,
   `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
@@ -328,3 +328,15 @@ its model is one the tests rely on.
   LibGroupBuffs' `-- WowTestKit #82:` `CreateMaskTexture` (which added each mask to the regions,
   as its pre-kit stub did) goes; kept, its tests also rely on `GetRegions()` listing masks, which
   nobody has measured.
+- **An XML intrinsic is a widget of its base type** (#85): `CreateFrame("EventFrame")` makes a
+  `Frame`, `CreateFrame("DropdownButton")` a `Button` (`WoW.INTRINSIC`, every intrinsic in
+  Blizzard's source but `ScrollingMessageFrame`, which the build lists as a type). Before, the
+  widget's type was the intrinsic's name: every name read as a method on it, and
+  `Kit.checkMethods` failed each call ("widget type exists on Forever …: EventFrame:SetPoint").
+  Now `w._type` and `GetObjectType()` are the base type (the client's `GetObjectType` for an
+  intrinsic is unmeasured), `w._intrinsic` keeps the name, and the calls are recorded on the base
+  type. **A method the base type lacks now reads `nil`**: the intrinsic's mixin methods
+  (`DropdownButtonMixin:SetupMenu`) are allowed on the base type,
+  `Kit.allowMethods({ ["Button:SetupMenu"] = "…" })`, and a pair allowed under the intrinsic's
+  name (`DropdownButton:SetupMenu`) moves there. GuildSpy's `-- WowTestKit #85:` `CreateFrame`
+  wrapper goes. A stub's `if w._type == "DropdownButton"` reads `w._intrinsic`.

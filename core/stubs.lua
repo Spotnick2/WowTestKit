@@ -360,12 +360,42 @@ end
 -- in order. Unknown templates add nothing.
 WoW.templates = {}
 
+-- XML intrinsics (WowTestKit #85): a frame type Blizzard's XML declares with
+-- intrinsic="true" is a widget of its base element's type with a mixin, not
+-- a widget type of its own (the build's lists have none of these). CreateFrame
+-- makes one as its base type (w._type), keeps the name asked for in
+-- w._intrinsic, and the calls are recorded on the base type, so the mixin's
+-- methods are Kit.allowMethods entries on it ("Button:SetupMenu"), like any
+-- other mixin's. GetObjectType returns the base type here; what the client's
+-- returns for an intrinsic is unmeasured. The intrinsic's own XML (its mixin,
+-- enableMouse, scripts) isn't applied: a template given to CreateFrame is.
+-- Every intrinsic in wow-ui-source forever 70959 (Interface/AddOns/...):
+-- Blizzard_SharedXML/Shared/Frame/EventFrame.xml:3, EventButton.xml:3,
+-- EventEditBox.xml:3, EventScrollFrame.xml:3; Blizzard_Menu/DropdownButton.xml:3;
+-- Blizzard_SharedXML/DropDownToggleButton.xml:4, AlertFrameIntrinsic.xml:4;
+-- Blizzard_ItemButton/Shared/ItemButtonTemplate.xml:4;
+-- Blizzard_AuraContainer/Blizzard_AuraButton.xml:5, Blizzard_AuraContainer.xml:5;
+-- Blizzard_AccessibilityTemplates/AccessibilityIntrinsics.xml:3. Except
+-- ScrollingMessageFrame (Blizzard_SharedXML/ScrollingMessageFrame.xml:3, an
+-- intrinsic Frame): the dump made one with CreateFrame("ScrollingMessageFrame")
+-- and lists its methods under that name, so the build's lists, WoW.KIND_OF
+-- and consumers' pairs treat it as a type. A consumer adds its own:
+-- WoW.INTRINSIC.MyIntrinsic = "Frame".
+WoW.INTRINSIC = {
+    EventFrame = "Frame", EventButton = "Button", EventEditBox = "EditBox",
+    EventScrollFrame = "ScrollFrame", DropdownButton = "Button", DropDownToggleButton = "Button",
+    ContainedAlertFrame = "Button", ItemButton = "Button", AuraButton = "Button",
+    AuraContainer = "Frame", UIThemeContainerFrame = "Frame",
+}
+
 function CreateFrame(ftype, name, parent, template)
-    local w = newWidget(ftype, parent, name)
+    local base = WoW.INTRINSIC[ftype]
+    local w = newWidget(base or ftype, parent, name)
+    w._intrinsic = base and ftype or nil
     w._template = template
     w._frame = true   -- a frame, not a region (SetParent moves it between children)
-    if ftype == "StatusBar" then w._min, w._max, w._value = 0, 1, 0 end
-    if ftype == "GameTooltip" then w._lines, w._linesRight = {}, {} end   -- no lines yet (#89)
+    if w._type == "StatusBar" then w._min, w._max, w._value = 0, 1, 0 end
+    if w._type == "GameTooltip" then w._lines, w._linesRight = {}, {} end   -- no lines yet (#89)
     if template then
         for t in template:gmatch("[^,%s]+") do
             local build = WoW.templates[t]
