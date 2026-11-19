@@ -7,6 +7,7 @@ WoW.templates.KitSecureTemplate = function(w) w._protected = true end
 local b = CreateFrame("Button", "KitSecure", UIParent, "KitSecureTemplate")
 b:SetSize(10, 10)
 b:SetAttribute("type", "macro")
+b:EnableMouse(true)
 local plain = CreateFrame("Frame", nil, UIParent)
 
 WoW.combat = true
@@ -16,6 +17,9 @@ local calls = {
     { "StartMoving" }, { "StopMovingOrSizing" }, { "SetClampedToScreen", false },
     { "RegisterForClicks", "AnyDown" },
     { "SetShown", false }, { "SetPoint", "CENTER" },
+    -- LibGroupBuffsProbe's combat sweep, 70959 (#83).
+    { "SetScale", 2 }, { "SetFrameStrata", "HIGH" }, { "SetFrameLevel", 9 },
+    { "EnableMouse", false },
 }
 for i, c in ipairs(calls) do
     b[c[1]](b, select(2, unpack(c)))
@@ -26,6 +30,9 @@ eq(b:GetAttribute("type"), "macro", "the refused SetAttribute changed nothing")
 eq(b:GetWidth(), 10, "the refused SetWidth changed nothing")
 eq(b:GetHeight(), 10, "nor SetHeight / SetSize")
 check(b:IsShown(), "the refused SetShown(false) left it shown")
+check(b:GetFrameStrata() ~= "HIGH", "the refused SetFrameStrata changed nothing")
+check(b:GetFrameLevel() ~= 9, "nor SetFrameLevel")
+check(b:IsMouseEnabled(), "nor EnableMouse(false)")
 check(WoW.methodsCalled["Button:SetAttribute"], "a refused call is still recorded for the methods check")
 
 -- A consumer's replacement keeps the refusal.
@@ -41,11 +48,25 @@ WoW.Methods.SetAttribute(b, "type", "spell")
 eq(b:GetAttribute("type"), "macro", "a direct Methods.SetAttribute is refused in combat")
 eq(WoW.blocked[n + 1], "KitSecure:SetAttribute", "and recorded")
 
+-- Measured as allowed on 70959 (#83): SetAlpha on the protected frame, and
+-- its regions' writes.
+local n2 = #WoW.blocked
+b:SetAlpha(0.5)
+eq(b:GetAlpha(), 0.5, "SetAlpha on a protected frame goes through in combat")
+local tex = b:CreateTexture()
+local fs = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+tex:Hide(); fs:Hide()
+check(not tex:IsShown() and not fs:IsShown(), "a protected frame's regions hide in combat")
+tex:Show(); fs:SetShown(true)
+check(tex:IsShown() and fs:IsShown(), "and show")
+tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+eq(#WoW.blocked, n2, "with nothing recorded")
+
 -- A consumer extends the list.
-WoW.PROTECTED.SetScale = true
-b:SetScale(2)
-eq(WoW.blocked[#WoW.blocked], "KitSecure:SetScale", "a consumer can add a protected method")
-WoW.PROTECTED.SetScale = nil
+WoW.PROTECTED.SetParent = true
+b:SetParent(UIParent)
+eq(WoW.blocked[#WoW.blocked], "KitSecure:SetParent", "a consumer can add a protected method")
+WoW.PROTECTED.SetParent = nil
 
 -- Not protected, or not in combat: everything goes through.
 local before = #WoW.blocked
