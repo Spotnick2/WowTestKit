@@ -234,6 +234,14 @@ templates (`SecureActionButtonTemplate`'s OnClick is the secure action, `WoW.sec
   `WoW.blocked`). The core's conditions are `[combat]` and `no...`; any other is an error until
   the stub adds it to `WoW.CONDITIONS`. `[group]`, `[party]` and `[raid]` read false in combat, as
   measured. `_onstate-<s>` snippets don't run (OnAttributeChanged isn't modelled).
+- **The secure action resolves modified attributes** (#88): `*type1`, `shift-type*`, `type`...
+  for the mouse button and the modifiers the stub's `IsShiftKeyDown` / `IsControlKeyDown` /
+  `IsAltKeyDown` report (none held when it has none), and `WoW.secureActions` records the
+  resolved values. A stub's own `SecureActionButtonTemplate` for this (Shatter's) goes. **An edge
+  whose type resolves to nothing records nothing now**: a test that counted an entry for a button
+  with no `type` (or for a right click on a `*type1` button) counts one less. With
+  `WoW.useKeyHeldSpell` (the `ActionButtonUseKeyHeldSpell` CVar, off by default) or a
+  `pressAndHoldAction` attribute, the up edge acts on `typerelease` (`release = true`).
 
 ### A fresh client (WowTestKit #8, #45, #48)
 

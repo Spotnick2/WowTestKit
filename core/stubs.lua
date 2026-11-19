@@ -164,6 +164,7 @@ function WoW.reset(opts)
     WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
     WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
     WoW.focus = nil             -- the edit box with the keyboard focus (WowTestKit #89)
+    WoW.useKeyHeldSpell = false -- the ActionButtonUseKeyHeldSpell CVar (press-and-hold casting, #88)
     WoW.stateDrivers = {}       -- [frame] = { [attribute] = values } (WowTestKit #77)
     WoW.stateDriverTimer = nil  -- SecureStateDriverManager's throttle; nil while it's hidden
     for _, fn in ipairs(WoW.onReset) do fn(opts) end
@@ -1326,9 +1327,9 @@ end
 -- Modelled: SecureHandlerWrapScript / UnwrapScript on OnClick,
 -- SecureHandlerSetFrameRef, SecureHandlerExecute, one environment per
 -- protected frame, frame handles with the methods below, the secure action
--- button's own click (WoW.secureActionClick), and WoW.click /
--- WoW.pressKey to drive them. Not modelled: other wrapped scripts, modified
--- attributes (*type1, shift-type1...), the header templates' own snippet
+-- button's own click (WoW.secureActionClick, with modified attributes:
+-- *type1, shift-type1..., #88), and WoW.click / WoW.pressKey to drive them.
+-- Not modelled: other wrapped scripts, the header templates' own snippet
 -- attributes (_onclick, _onstate-...), and a snippet's error being caught
 -- (here it fails the test).
 --------------------------------------------------------------------------------
@@ -1650,23 +1651,101 @@ function SecureHandlerUnwrapScript(frame, script)
     return wrap.header, wrap.pre, wrap.post
 end
 
--- The secure action button's own OnClick (SecureActionButton_OnClick): it
--- acts only on the edge where down == useOnKeyDown (the attribute, else the
--- ActionButtonUseKeyDown CVar: WoW.useKeyDown). Measured on Forever, so one
--- click uses an item once (Apotheca AGENTS.md, "Secure buttons register both
--- mouse edges"). What it did goes to WoW.secureActions. Returns whether it
--- acted.
-function WoW.secureActionClick(self, button, down)
-    local attrs = self._attrs or {}
-    local onDown = attrs.useOnKeyDown
-    if onDown == nil then onDown = WoW.useKeyDown end
-    if (down and true or false) ~= (onDown and true or false) then return false end
+-- Modified attributes (WowTestKit #88): SecureButton_GetModifiedAttribute
+-- (SecureTemplates.lua:119, wow-ui-source forever 70959). The prefix is the
+-- modifiers held, "alt-ctrl-shift-" in that order (:70), read from the
+-- stub's IsAltKeyDown / IsControlKeyDown / IsShiftKeyDown when it defines
+-- them (none held otherwise); the suffix is the mouse button's number
+-- (LeftButton 1, RightButton 2, MiddleButton 3, Button4..31 its number,
+-- any other "-<button>": :101). The lookup is the C side's
+-- GetAttribute(prefix, name, suffix), not in the Lua source; its order is
+-- the Warcraft wiki's (SecureActionButtonTemplate, "Modified attributes"):
+-- prefix..name..suffix, "*"..name..suffix, prefix..name.."*",
+-- "*"..name.."*", name, which fits SecureTemplates.lua:4-28's comment.
+-- Nothing there: useparent-<name> / useparent* ask the parent (or
+-- frame.bar). ATTRIBUTE_NOOP ("") reads nil. The "modifiers" attribute
+-- (IsModifiedClick) isn't modelled: a button that sets it is an error.
+local MOUSE_SUFFIX = { LeftButton = "1", RightButton = "2", MiddleButton = "3" }
+local function buttonSuffix(button)
+    if MOUSE_SUFFIX[button] then return MOUSE_SUFFIX[button] end
+    if button and button ~= "" then
+        local n = tonumber(tostring(button):match("^Button(%d+)$"))
+        if n and n >= 4 and n <= 31 then return tostring(n) end
+        return "-" .. tostring(button)
+    end
+    return ""
+end
+local function modifierPrefix(frame)
+    if frame._attrs and frame._attrs.modifiers ~= nil then
+        error("WowTestKit doesn't model the modifiers attribute (IsModifiedClick) (#88)", 0)
+    end
+    local function held(name) local fn = rawget(_G, name); return fn and fn() end
+    local prefix = ""
+    if held("IsShiftKeyDown") then prefix = "shift-" .. prefix end
+    if held("IsControlKeyDown") then prefix = "ctrl-" .. prefix end
+    if held("IsAltKeyDown") then prefix = "alt-" .. prefix end
+    return prefix
+end
+local function modifiedAttribute(frame, name, button, prefix, suffix)
+    prefix = prefix or modifierPrefix(frame)
+    suffix = suffix or buttonSuffix(button)
+    local a = frame._attrs or {}
+    local value = a[prefix .. name .. suffix]
+    if value == nil then value = a["*" .. name .. suffix] end
+    if value == nil then value = a[prefix .. name .. "*"] end
+    if value == nil then value = a["*" .. name .. "*"] end
+    if value == nil then value = a[name] end
+    if not value and (a["useparent-" .. name] or a["useparent*"]) then
+        local parent = frame.bar or frame._parent
+        if parent then value = modifiedAttribute(parent, name, button, prefix, suffix) end
+    end
+    if value == "" then value = nil end
+    return value
+end
+
+-- The secure action button's own OnClick (SecureActionButton_OnClick,
+-- SecureTemplates.lua:802): it acts only on the edge where down ==
+-- useOnKeyDown (the attribute, else the ActionButtonUseKeyDown CVar:
+-- WoW.useKeyDown; a pressAndHoldAction attribute makes it the down edge).
+-- Measured on Forever, so one click uses an item once (Apotheca AGENTS.md,
+-- "Secure buttons register both mouse edges"). The other edge, when it's the
+-- up one, is the press-and-hold release under pressAndHoldAction or the
+-- ActionButtonUseKeyHeldSpell CVar (WoW.useKeyHeldSpell): it acts on
+-- typerelease, never type (porting guide, "Registering both edges"), and
+-- does nothing without one. Every attribute is resolved as a modified
+-- attribute for the button (above); on the down edge a downbutton attribute
+-- remaps the button first. What it did goes to WoW.secureActions, with the
+-- resolved values (release = true for a typerelease); an edge whose type
+-- resolves to nothing does nothing (PerformAction, :730) and records
+-- nothing. Returns whether it took the edge. Not modelled: unitsuffix, the harmbutton / helpbutton
+-- remap, mouseover / self / focus cast, the unit having to exist, the
+-- item's bag / slot fallback, and the client's real mouse press (always on
+-- the up edge): every click here is an addon's or a key's.
+local function recordAction(self, button, mouse, actionType, release)
+    local function get(name) return modifiedAttribute(self, name, button) end
     table.insert(WoW.secureActions, {
-        button = self._name, mouse = button, type = attrs.type, item = attrs.item, spell = attrs.spell,
-        macro = attrs.macro, macrotext = attrs.macrotext, unit = attrs.unit,
-        targetBag = attrs["target-bag"], targetSlot = attrs["target-slot"],
+        button = self._name, mouse = mouse, type = actionType, item = get("item"), spell = get("spell"),
+        macro = get("macro"), macrotext = get("macrotext"), unit = get("unit"),
+        targetBag = get("target-bag"), targetSlot = get("target-slot"), release = release,
     })
-    return true
+end
+function WoW.secureActionClick(self, button, down)
+    local pressAndHold = modifiedAttribute(self, "pressAndHoldAction", nil, "", "")
+    local onDown = modifiedAttribute(self, "useOnKeyDown", nil, "", "")
+    if onDown == nil then onDown = WoW.useKeyDown end
+    onDown = (onDown or pressAndHold) and true or false
+    if (down and true or false) == onDown then
+        local effective = button
+        if down then effective = modifiedAttribute(self, "downbutton", button) or button end
+        local actionType = modifiedAttribute(self, "type", effective)
+        if actionType then recordAction(self, effective, button, actionType) end
+        return true
+    elseif not down and (pressAndHold or WoW.useKeyHeldSpell) then
+        local actionType = modifiedAttribute(self, "typerelease", button)
+        if actionType then recordAction(self, button, button, actionType, true) end
+        return true
+    end
+    return false
 end
 
 -- One edge of a click on a button, as the client runs it: PreClick, OnClick
