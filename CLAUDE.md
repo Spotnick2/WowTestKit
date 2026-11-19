@@ -37,6 +37,14 @@ Spotnick2/wow-dev-tools#11.
 
 Mutation-test every new assertion: break the behaviour, confirm it goes red.
 
+The kit's probe, `tools/WowTestKitProbe` (`/fp tk`), measures client behaviour a core model needs
+(`References\Docs\PROBES.md`). Results go in `docs/FOREVER-PROBE.md`, with the build.
+
+```powershell
+pwsh -NoProfile -File tools\deploy-probe.ps1                                # ForeverProbe + the probe, then /reload in game
+& 'C:\Program Files (x86)\Lua\5.1\lua.exe' tests\probe\test_probe.lua    # local only: ForeverProbe is private, CI skips tests\probe
+```
+
 ## Workflow
 
 Issue → branch off `main` → PR with `Closes #N`. The owner merges. Never commit to `main`.
