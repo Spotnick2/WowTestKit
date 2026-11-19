@@ -261,7 +261,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Widget methods the stubs had (WowTestKit #78, #89, #92)
+### Widget methods the stubs had (WowTestKit #78, #89, #92, #97)
 
 The core now implements methods most consumers had in their own stub. Each read as a method
 before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
@@ -299,6 +299,9 @@ its model is one the tests rely on.
   each point once in `#f._points` and `GetNumPoints()`, and a replaced anchor moves to the end of
   the list, so `GetPoint(i)` / `f._points[i]` may read another anchor than before. GlassRaidFrames'
   `-- WowTestKit #92:` `SetPoint` and its `ClearPoint` go.
+- **`GetVertexColor()` and `GetNumMaskTextures()`** (#97) read back what `SetVertexColor` and
+  `AddMaskTexture` / `RemoveMaskTexture` set: white and 0 until set, and an alpha left out reads 1
+  (both defaults unmeasured). GlassNameplates' `-- WowTestKit #97:` pair goes.
 
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 

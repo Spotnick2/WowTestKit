@@ -810,6 +810,14 @@ function Methods.SetAtlas(t, name) t._atlas, t._file, t._color = name, nil, nil 
 function Methods.SetColorTexture(t, r, g, b, a) t._color = { r, g, b, a }; t._file, t._atlas = nil, nil end
 function Methods.SetBlendMode(t, mode) t._blend = mode end
 function Methods.SetVertexColor(t, r, g, b, a) t._vertex = { r, g, b, a } end
+-- The colour SetVertexColor set (WowTestKit #97): four numbers, never nil
+-- (SimpleRegionAPIDocumentation.lua, forever 70959). Unset, it reads white,
+-- and an alpha left out of SetVertexColor (it's nilable there) reads 1:
+-- neither default is measured.
+function Methods.GetVertexColor(t)
+    local v = t._vertex or { 1, 1, 1, 1 }
+    return v[1], v[2], v[3], v[4] or 1
+end
 function Methods.SetDesaturated(t, on) t._desaturated = on == true end
 -- SetGradient(orientation, minColor, maxColor): the colours are colour
 -- objects (the dump's colorRGBA, made by CreateColor), not numbers.
@@ -822,6 +830,8 @@ function Methods.SetGradient(t, orientation, c1, c2)
     t._alpha = nil   -- a gradient's alpha is its colours' (GetAlpha reads 1)
 end
 function Methods.AddMaskTexture(t, m) t._masks = t._masks or {}; table.insert(t._masks, m) end
+-- How many masks AddMaskTexture put on it, 0 for none (WowTestKit #97).
+function Methods.GetNumMaskTextures(t) return t._masks and #t._masks or 0 end
 -- Takes that mask off (WowTestKit #68); one it doesn't have is ignored.
 function Methods.RemoveMaskTexture(t, m)
     for i, x in ipairs(t._masks or {}) do
