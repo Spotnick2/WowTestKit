@@ -225,6 +225,15 @@ templates (`SecureActionButtonTemplate`'s OnClick is the secure action, `WoW.sec
 - **Snippets follow the client's rules:** no `function` keyword or table literals; `SetAttribute`
   refuses `_` names and table values; `SetPoint` needs a protected relative frame; in combat a
   handle reaches only protected frames.
+- **State drivers** (#77): the core defines `RegisterStateDriver`, `UnregisterStateDriver`,
+  `RegisterAttributeDriver`, `UnregisterAttributeDriver` and `SecureCmdOptionParse`, so
+  `Kit.checkCore()` gains ten checks. A stub's own (Apotheca's `-- WowTestKit #77:`) goes. A
+  driver resolves at registration, then every 0.2 s of `WoW.tick` / `WoW.step`, and on the next
+  frame after `WoW.fire("PLAYER_REGEN_DISABLED")` (or `_ENABLED`, and the client's other wake
+  events): flipping `WoW.combat` alone waits out the 0.2 s. Registering in combat is refused (in
+  `WoW.blocked`). The core's conditions are `[combat]` and `no...`; any other is an error until
+  the stub adds it to `WoW.CONDITIONS`. `[group]`, `[party]` and `[raid]` read false in combat, as
+  measured. `_onstate-<s>` snippets don't run (OnAttributeChanged isn't modelled).
 
 ### A fresh client (WowTestKit #8, #45, #48)
 

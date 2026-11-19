@@ -164,6 +164,8 @@ function WoW.reset(opts)
     WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
     WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
     WoW.focus = nil             -- the edit box with the keyboard focus (WowTestKit #89)
+    WoW.stateDrivers = {}       -- [frame] = { [attribute] = values } (WowTestKit #77)
+    WoW.stateDriverTimer = nil  -- SecureStateDriverManager's throttle; nil while it's hidden
     for _, fn in ipairs(WoW.onReset) do fn(opts) end
 end
 
@@ -1212,9 +1214,13 @@ end
 -- Driving
 --------------------------------------------------------------------------------
 
+-- SecureStateDriverManager's OnUpdate and OnEvent (#77, below).
+local driveStates, wakeStateDrivers
+
 -- Fire an event at every frame registered for it. Errors are NOT caught: a
 -- handler that throws fails the test.
 function WoW.fire(event, ...)
+    wakeStateDrivers(event)
     local unit = ...
     for _, w in ipairs(WoW.frames) do
         local handler = w._scripts.OnEvent
@@ -1275,6 +1281,7 @@ end
 
 -- OnUpdate on every visible frame made so far, with elapsed.
 local function runOnUpdates(elapsed)
+    driveStates(elapsed)   -- Blizzard's frame, made before any addon's (the order isn't measured)
     local list = {}
     for _, w in ipairs(WoW.frames) do list[#list + 1] = w end
     for _, w in ipairs(list) do
@@ -1697,6 +1704,196 @@ end
 WoW.cursorX, WoW.cursorY = WoW.cursorX or 0, WoW.cursorY or 0
 function GetCursorPosition() return WoW.cursorX, WoW.cursorY end
 
+--------------------------------------------------------------------------------
+-- Secure state drivers (WowTestKit #77), from the client's own source
+-- (wow-ui-source forever, 70959: Blizzard_RestrictedAddOnEnvironment's
+-- SecureStateDriver.lua). They work on Forever since 70425, in combat too
+-- (porting guide, "Secure click-casting works": a RegisterStateDriver's
+-- "[combat] in; out" delivered out, then in in combat).
+--
+-- RegisterStateDriver(f, s, v) is RegisterAttributeDriver(f, "state-" .. s,
+-- v). The driver is resolved at once, then by SecureStateDriverManager's
+-- OnUpdate every 0.2 s (here: on WoW.tick / WoW.step, before the frames'
+-- own OnUpdate), and on the next frame after one of the events below
+-- (WoW.fire of PLAYER_REGEN_DISABLED... sets its timer to 0). So a test that
+-- enters combat fires PLAYER_REGEN_DISABLED then steps, or steps 0.2 s.
+-- "state-visibility": "show" / "hide" show or hide the frame from secure code
+-- (no combat refusal: WoW.setShown) and clear or set "statehidden". Any other
+-- attribute gets the value ("nil" clears it, a number string is a number).
+-- Not modelled: OnAttributeChanged (so a state header's _onstate-<s>
+-- snippet), which the core's SetAttribute fires nowhere; RegisterUnitWatch.
+-- The registration goes through SecureStateDriverManager:SetAttribute, a
+-- protected frame's (SecureFrameTemplate): from addon code in combat that's
+-- refused, so it does nothing and is recorded in WoW.blocked (read in the
+-- source, not measured). WoW.stateDrivers[frame][attribute] is the values.
+--------------------------------------------------------------------------------
+
+-- The macro conditions (SecureCmdOptionParse, a C function: not in the
+-- Lua source). "[c1,c2][c3] a; [c4] b; c": the first clause one of whose
+-- [...] groups holds (every condition in it true) gives its value, trimmed;
+-- a clause with no group, or "[]", always holds. Returns the value and the
+-- group's target (@unit or target=unit), or nil when no clause holds. A
+-- clause that holds with no value gives "" (Blizzard's slash commands test
+-- the result for truth: SlashCommands.lua:359).
+-- WoW.CONDITIONS[name](args, target) says whether a condition holds: args is
+-- its ":a/b" list (nil without one). "no<name>" is its negation. The core
+-- has [combat] (WoW.combat); a stub adds the others it relies on
+-- (WoW.CONDITIONS.mod, .exists, ...), and any other is an error naming it.
+-- [group], [party] and [raid] read false in combat whatever the stub says
+-- (measured on 70425 and 70450, porting guide, "Secure click-casting works":
+-- [@mouseover,party] and a state driver's [group:raid] read false in combat).
+WoW.CONDITIONS = {
+    combat = function() return WoW.combat == true end,
+}
+WoW.FALSE_IN_COMBAT = { group = true, party = true, raid = true }
+
+local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
+
+local function condition(c, target)
+    local neg, name, args = false, c:match("^([%w_]+)%s*:?%s*(.-)$")
+    if not name then error("SecureCmdOptionParse: can't read the condition [" .. c .. "]", 0) end
+    name = name:lower()
+    if not WoW.CONDITIONS[name] and not WoW.FALSE_IN_COMBAT[name] and name:match("^no.") then
+        neg, name = true, name:sub(3)
+    end
+    local list
+    if args ~= "" then
+        list = {}
+        for a in args:gmatch("[^/]+") do list[#list + 1] = trim(a) end
+    end
+    local holds
+    if WoW.FALSE_IN_COMBAT[name] and WoW.combat then
+        holds = false
+    else
+        local fn = WoW.CONDITIONS[name]
+        if not fn then
+            error("WowTestKit doesn't model the [" .. name .. "] condition (#77): the stub adds WoW.CONDITIONS."
+                  .. name, 0)
+        end
+        holds = fn(list, target) and true or false
+    end
+    if neg then return not holds end
+    return holds
+end
+
+-- One [...] group's contents: true and its target when every condition holds.
+local function group(body)
+    local target
+    local conds = {}
+    for c in body:gmatch("[^,]+") do
+        c = trim(c)
+        local unit = c:match("^@(.+)$") or c:match("^target%s*=%s*(.+)$")
+        if unit then target = trim(unit) elseif c ~= "" then conds[#conds + 1] = c end
+    end
+    for _, c in ipairs(conds) do
+        if not condition(c, target) then return false end
+    end
+    return true, target
+end
+
+function SecureCmdOptionParse(msg)
+    if type(msg) ~= "string" then return nil end
+    for clause in (msg .. ";"):gmatch("([^;]*);") do
+        local rest = trim(clause)
+        local any, holds, target = false, false, nil
+        while rest:sub(1, 1) == "[" do
+            local body, after = rest:match("^%[([^%]]*)%](.*)$")
+            if not body then error("SecureCmdOptionParse: an unclosed [ in " .. msg, 0) end
+            any = true
+            if not holds then
+                local ok, t = group(body)
+                if ok then holds, target = true, t end
+            end
+            rest = trim(after)
+        end
+        if holds or not any then return rest, target end
+    end
+    return nil
+end
+
+-- SecureStateDriver.lua's resolveDriver.
+local function resolveDriver(frame, attribute, values)
+    local newValue = SecureCmdOptionParse(values)
+    frame._attrs = frame._attrs or {}
+    if attribute == "state-visibility" then
+        if newValue == "show" then
+            WoW.setShown(frame, true)
+            frame._attrs.statehidden = nil
+        elseif newValue == "hide" then
+            WoW.setShown(frame, false)
+            frame._attrs.statehidden = true
+        end
+    elseif newValue then
+        if newValue == "nil" then newValue = nil else newValue = tonumber(newValue) or newValue end
+        frame._attrs[attribute] = newValue
+    end
+end
+
+-- Every 0.2 s while the manager is shown (from its first registration).
+local STATE_DRIVER_UPDATE_THROTTLE = 0.2
+driveStates = function(elapsed)
+    if WoW.stateDriverTimer == nil then return end
+    WoW.stateDriverTimer = WoW.stateDriverTimer - elapsed
+    if WoW.stateDriverTimer > 0 then return end
+    WoW.stateDriverTimer = STATE_DRIVER_UPDATE_THROTTLE
+    local list = {}   -- a show or hide runs scripts, which may register drivers
+    for frame, drivers in pairs(WoW.stateDrivers) do
+        for attribute, values in pairs(drivers) do list[#list + 1] = { frame, attribute, values } end
+    end
+    for _, d in ipairs(list) do resolveDriver(d[1], d[2], d[3]) end
+end
+
+-- The events that bring the next update forward (SecureStateDriver.lua's
+-- RegisterEvent list).
+WoW.STATE_DRIVER_EVENTS = {
+    MODIFIER_STATE_CHANGED = true, ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true,
+    PLAYER_ENTERING_WORLD = true, UPDATE_SHAPESHIFT_FORM = true, UPDATE_STEALTH = true,
+    PLAYER_TARGET_CHANGED = true, PLAYER_FOCUS_CHANGED = true, PLAYER_REGEN_DISABLED = true,
+    PLAYER_REGEN_ENABLED = true, UNIT_PET = true, GROUP_ROSTER_UPDATE = true,
+}
+wakeStateDrivers = function(event)
+    if WoW.STATE_DRIVER_EVENTS[event] and WoW.stateDriverTimer then WoW.stateDriverTimer = 0 end
+end
+
+-- SecureStateDriverManager's OnAttributeChanged: "setframe" (shows the
+-- manager), then "setstate" "<attribute> <values>" (empty values remove the
+-- driver), or "delframe".
+local function driverRefused(what)
+    if WoW.combat then
+        table.insert(WoW.blocked, "SecureStateDriverManager:SetAttribute (" .. what .. ")")
+        return true
+    end
+end
+local function setState(frame, setstate)
+    if type(frame) ~= "table" then error("Invalid frame", 3) end
+    WoW.stateDrivers[frame] = WoW.stateDrivers[frame] or {}
+    if WoW.stateDriverTimer == nil then WoW.stateDriverTimer = 0 end
+    local attribute, values = string.match(setstate, "^(%S+)%s*(.*)$")
+    if values == "" then
+        WoW.stateDrivers[frame][attribute] = nil
+    else
+        WoW.stateDrivers[frame][attribute] = values
+        resolveDriver(frame, attribute, values)
+    end
+end
+
+function RegisterAttributeDriver(frame, attribute, values)
+    if attribute and values and attribute:sub(1, 1) ~= "_" then
+        if driverRefused("RegisterAttributeDriver") then return end
+        setState(frame, attribute .. " " .. values)
+    end
+end
+function UnregisterAttributeDriver(frame, attribute)
+    if driverRefused("UnregisterAttributeDriver") then return end
+    if attribute then
+        setState(frame, attribute)
+    elseif frame ~= nil then
+        WoW.stateDrivers[frame] = nil
+    end
+end
+function RegisterStateDriver(frame, state, values) RegisterAttributeDriver(frame, "state-" .. state, values) end
+function UnregisterStateDriver(frame, state) UnregisterAttributeDriver(frame, "state-" .. state) end
+
 WoW.reset()
 
 --------------------------------------------------------------------------------
@@ -1709,7 +1906,8 @@ WoW.reset()
 Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "GetLocale", "InCombatLockdown",
                      "strmatch", "hooksecurefunc", "C_Timer", "pcall", "xpcall", "GetCursorPosition",
                      "SecureHandlerSetFrameRef", "SecureHandlerExecute", "SecureHandlerWrapScript",
-                     "SecureHandlerUnwrapScript" }
+                     "SecureHandlerUnwrapScript", "SecureCmdOptionParse", "RegisterAttributeDriver",
+                     "UnregisterAttributeDriver", "RegisterStateDriver", "UnregisterStateDriver" }
 Kit.CORE_FRAMEXML = { UIParent = "FrameXML UIParent.xml; a widget type of its own in the dump" }
 
 -- allowNil: the names that may read as nil (the addon's own globals before
