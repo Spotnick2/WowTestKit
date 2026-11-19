@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: WowTestKitProbe
+## Notes: Throwaway probe for WowTestKit: client behaviour the kit's core models. A ForeverProbe module: /fp tk
+## Author: Spotnick
+## Version: dev
+## Dependencies: ForeverProbe
+## SavedVariables: WowTestKitProbeDB
+
+WowTestKitProbe.lua
