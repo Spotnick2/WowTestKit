@@ -451,6 +451,10 @@ function Methods.SetWidth(w, x) w._width = x end
 function Methods.SetHeight(w, y) w._height = y end
 function Methods.GetWidth(w) return w._width end
 function Methods.GetHeight(w) return w._height end
+-- GetSize() -> width, height (SimpleScriptRegionAPI; WowTestKit #78): what
+-- SetSize / SetWidth / SetHeight set, as GetWidth and GetHeight read it.
+-- Its ignoreRect argument changes nothing here (no layout).
+function Methods.GetSize(w) return w._width, w._height end
 -- A texture with a gradient ignores SetAlpha, in either order (measured on
 -- 70374, porting guide section 3, "A gradient texture ignores SetAlpha"; LibGlass
 -- r7 probe): GetAlpha reads 1 and the gradient's colours alone set its alpha.

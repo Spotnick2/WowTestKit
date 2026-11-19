@@ -237,6 +237,16 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
+### Widget methods the stubs had (WowTestKit #78)
+
+The core now implements methods most consumers had in their own stub. Each read as a method
+before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
+its model is one the tests rely on.
+
+- **`GetSize()` returns the width and height** (#78), as `GetWidth` / `GetHeight` read them. The
+  `-- WowTestKit #78:` one-liners go (Apotheca, GlassMiniMap, GlassMiniMapBar, GlassQuestTracker,
+  GlassUI, NodeRadar, PortalRoulette, Shatter, Stakeout).
+
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
 - **The widget metatable's `__index` is a method table per type** (#7): GlassMiniMapBar's
