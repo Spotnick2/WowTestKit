@@ -134,7 +134,7 @@ then OnUpdate at the step's end.
   stub's `advance(0)` that moved the clock by `1e-9` to work around it can go (PortalRoulette's
   `tests/wow_stubs.lua`).
 
-### OnShow / OnHide fire on a visibility change, down the tree (WowTestKit #21, #46)
+### OnShow / OnHide fire on a visibility change, down the tree (WowTestKit #21, #46, #99)
 
 `Show` / `Hide` fire the frame's and its descendants' scripts only where visibility changed:
 `Show` on a shown frame fires nothing, a frame under a hidden parent gets nothing until the parent
@@ -148,6 +148,16 @@ frames out of the parents that survive it.
   scripts twice.
 - **A stub that writes `_shown` directly** bypasses the scripts; use `Show` / `Hide`, or
   `WoW.setShown(frame, shown)` for secure code's path (no combat refusal).
+- **Children first, and on a reparent too** (#99, measured on 70959 by WowTestKitProbe; see
+  `docs/FOREVER-PROBE.md`). The scripts of one walk run on a frame's descendants before the frame
+  itself (#21 had them parents first, unmeasured). A test asserting the order of a walk's
+  scripts reads it reversed. `SetParent` that changes a frame's visibility now runs the walk, so
+  its OnShow / OnHide fire during the call (with `GetParent()` the new parent); one that leaves it
+  visible, or hidden, fires nothing. LibShowcase's `-- WowTestKit #99:` `SetParent` goes.
+- **`SetParent` sets the frame level** (#99, measured): the new parent's + 1, raised or lowered,
+  0 with no parent, and each descendant one above its parent. A test reading a level after a
+  reparent reads the new one; one that relied on a level surviving it (LibShowcase's "level not
+  restored" mutant) now sees it change.
 
 ### Protected frames: one list, and parents of protected frames (WowTestKit #12, #42)
 

@@ -454,9 +454,13 @@ end
 WoW.refused = refused
 
 -- Visibility follows the parent's (WowTestKit #21). OnShow / OnHide fire on
--- the frame and on each descendant whose visibility changed, parents first,
--- and only on a change: Show on a shown frame fires nothing, and a frame
--- shown under a hidden ancestor gets OnShow when that ancestor shows.
+-- the frame and on each descendant whose visibility changed, children
+-- before their parent, and only on a change: Show on a shown frame fires
+-- nothing, and a frame shown under a hidden ancestor gets OnShow when that
+-- ancestor shows. The order is measured (WowTestKitProbe, /fp steps tk
+-- reparent, 70959, 2026-11-18; WowTestKit #99): Hide, Show and a SetParent
+-- that changes visibility each ran the child's script before its parent's,
+-- for a frame and its one child (siblings' order and deeper trees unmeasured).
 -- Each frame keeps the visibility its scripts last reported (w._vis). A
 -- show or hide walks the subtree and fires where the live visibility differs
 -- from it, so a script that shows or hides something while the walk runs
@@ -464,18 +468,18 @@ WoW.refused = refused
 -- each frame with one script per real change, never a stale one.
 -- The walk follows CreateFrame's children (w._children, kept by SetParent).
 local function settle(w)
+    local children = {}
+    for i, c in ipairs(w._children or {}) do children[i] = c end   -- a script may reparent
+    for _, c in ipairs(children) do settle(c) end
     local now = visible(w)
     if now ~= w._vis then
         w._vis = now
         local script = w._scripts[now and "OnShow" or "OnHide"]
         if script then script(w) end
     end
-    local children = {}
-    for i, c in ipairs(w._children or {}) do children[i] = c end   -- a script may reparent
-    for _, c in ipairs(children) do settle(c) end
 end
 -- The same walk without the scripts: the subtree's visibility is taken as
--- reported (reparenting, whose OnShow / OnHide isn't modelled).
+-- reported (a region reparented: textures and font strings have no OnShow).
 local function resync(w)
     w._vis = visible(w)
     for _, c in ipairs(w._children or {}) do resync(c) end
@@ -560,8 +564,19 @@ function Methods.SetAlpha(w, a) if not w._gradient then w._alpha = a end end
 function Methods.GetAlpha(w) return w._alpha or 1 end
 function Methods.GetParent(w) return w._parent end
 -- Reparenting moves the frame between its parents' children, so GetChildren
--- and the OnShow / OnHide walk follow it. (Its OnShow / OnHide on a
--- visibility change by reparenting isn't modelled.)
+-- and the OnShow / OnHide walk follow it. Measured on 70959 (WowTestKitProbe,
+-- /fp steps tk reparent, 2026-11-18; WowTestKit #99):
+-- - A frame whose visibility the move changes gets its OnShow / OnHide, and
+--   so do its descendants, children first, during the call, with GetParent
+--   already the new parent. A move that leaves it visible (or hidden) fires
+--   nothing. The same held under a UIParent hidden by Alt+Z.
+-- - Its frame level becomes the new parent's + 1 (0 with no parent), raised or
+--   lowered (7 under a 10 became 11, 50 under a 3 became 4), and its child
+--   moved with it, one above, every time (even after the frame's own
+--   SetFrameLevel(50)). Here each descendant is put one above its parent; a
+--   descendant given a level of its own wasn't measured.
+-- - Measured, not modelled: a frame with SetFixedFrameLevel(true) kept its
+--   level, and the frame took a HIGH parent's strata.
 -- Takes w out of list; true if it was there.
 local function takeOut(list, w)
     for i, c in ipairs(list or {}) do
@@ -569,11 +584,17 @@ local function takeOut(list, w)
     end
     return false
 end
+-- Puts each of w's descendants one level above its parent.
+local function relevel(w)
+    for _, c in ipairs(w._children or {}) do
+        c._level = w._level + 1
+        relevel(c)
+    end
+end
 function Methods.SetParent(w, p)
     local old = w._parent
     if old == p then return end
     w._parent = p
-    resync(w)
     if w._frame then
         -- A frame CreateFrame made: in its parent's children.
         if old then takeOut(old._children, w) end
@@ -586,6 +607,13 @@ function Methods.SetParent(w, p)
     elseif old and takeOut(old._maskTextures, w) then
         -- A mask made by CreateMaskTexture: in its parent's masks (#82).
         if p then p._maskTextures = p._maskTextures or {}; table.insert(p._maskTextures, w) end
+    end
+    if w._frame then
+        w._level = p and ((p._level or 0) + 1) or 0
+        relevel(w)
+        settle(w)   -- after the lists, so a script reads its new parent and siblings
+    else
+        resync(w)
     end
 end
 function Methods.GetChildren(w) return unpack(w._children or {}) end
