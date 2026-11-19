@@ -191,6 +191,15 @@ unit, with it as the payload.
 - **`w._unitEvents[event]` is a set** (`{ target = true }`), not the unit string GlassUnitFrames'
   stub kept.
 
+### Refused events (WowTestKit #79)
+
+- **`RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")` returns `false` and registers nothing**, as on
+  Forever (measured; the client raises `ADDON_ACTION_FORBIDDEN`). Each refusal is recorded in
+  `WoW.forbidden` (`"name:RegisterEvent:EVENT"`, cleared by `WoW.reset()`), not in `WoW.blocked`.
+  The set is `WoW.REFUSED_EVENTS`; a stub adds one it measured. A test that registered the
+  combat log and fired it now sees nothing arrive. Stakeout's `-- WowTestKit #79:` override
+  (`WoW.refusedEvents`) goes.
+
 ### The status bar colour (WowTestKit #19)
 
 `SetStatusBarColor` sets the fill's vertex colour and drops a gradient painted on it (measured,

@@ -142,6 +142,7 @@ function WoW.reset()
     WoW.locale = nil            -- GetLocale() reads "enUS" until a test sets one
     WoW.timers = {}
     WoW.blocked = {}
+    WoW.forbidden = {}          -- refused registrations (WowTestKit #79)
     WoW.secretBlocked, WoW.secretBlockedFirst = 0, nil
     WoW.secureActions = {}      -- what secure buttons did (WowTestKit #20)
     WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
@@ -576,8 +577,22 @@ function Methods.HookScript(w, name, fn)
     local old = w._scripts[name]
     w._scripts[name] = function(...) if old then old(...) end; fn(...) end
 end
+-- The events the client refuses to register (WowTestKit #79): RegisterEvent
+-- returns false without throwing, registers nothing, and the client raises
+-- ADDON_ACTION_FORBIDDEN (not BLOCKED), recorded here in WoW.forbidden as
+-- "name:RegisterEvent:EVENT". Measured: COMBAT_LOG_EVENT_UNFILTERED, though
+-- the build's events.txt lists it (porting guide, "Registering
+-- COMBAT_LOG_EVENT_UNFILTERED is itself a forbidden action"; Stakeout's
+-- docs/FOREVER-PROBE.md). A consumer adds one it measured:
+-- WoW.REFUSED_EVENTS.SOME_EVENT = true. RegisterUnitEvent isn't measured
+-- with one, so it doesn't consult the set.
+WoW.REFUSED_EVENTS = { COMBAT_LOG_EVENT_UNFILTERED = true }
 function Methods.RegisterEvent(w, e)
     if not WoW.KNOWN_EVENTS[e] then error("Attempt to register unknown event \"" .. tostring(e) .. "\"", 2) end
+    if WoW.REFUSED_EVENTS[e] then
+        table.insert(WoW.forbidden, (w._name or w._type) .. ":RegisterEvent:" .. e)
+        return false
+    end
     w._events[e] = true
     return true
 end
