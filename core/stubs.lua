@@ -130,21 +130,30 @@ WoW.KNOWN_EVENTS = Kit.data("events")
 --------------------------------------------------------------------------------
 
 WoW.onReset = {}
-function WoW.reset()
+-- WoW.reset({ keepFrames = true }) resets the client's state only
+-- (WowTestKit #80), for a test file that loads the addon once and resets
+-- between sections: the frames made so far are kept (WoW.frames, so events
+-- and OnUpdate still reach them, with their parents and children), and so
+-- are WoW.widgets and WoW.methodsCalled (Kit.checkMethods still sees the
+-- load's calls). Everything else is cleared as by WoW.reset(): chat,
+-- combat, timers (a ticker started at load is dropped too), WoW.blocked...
+-- Each WoW.onReset function gets the same opts.
+function WoW.reset(opts)
+    local keepFrames = type(opts) == "table" and opts.keepFrames == true
     -- The frames made so far are discarded: events and OnUpdate no longer
     -- reach them, and neither does a parent's OnShow / OnHide walk (#46).
     -- Each comes out of its parent's children, so a frame that survives the
     -- reset (UIParent, a frame the stub built) doesn't carry it on.
-    for _, w in ipairs(WoW.frames or {}) do
+    for _, w in ipairs(not keepFrames and WoW.frames or {}) do
         local siblings = w._parent and w._parent._children
         for i, c in ipairs(siblings or {}) do
             if c == w then table.remove(siblings, i); break end
         end
     end
-    WoW.frames = {}
+    WoW.frames = keepFrames and WoW.frames or {}
     WoW.chat = {}
-    WoW.methodsCalled = {}
-    WoW.widgets = {}            -- every widget made since, in order (WowTestKit #67)
+    WoW.methodsCalled = keepFrames and WoW.methodsCalled or {}
+    WoW.widgets = keepFrames and WoW.widgets or {}   -- every widget made since, in order (WowTestKit #67)
     WoW.combat = false
     WoW.locale = nil            -- GetLocale() reads "enUS" until a test sets one
     WoW.timers = {}
@@ -155,7 +164,7 @@ function WoW.reset()
     WoW.overrideBindings = {}   -- [key] = { owner, name, button, priority }
     WoW.useKeyDown = true       -- the ActionButtonUseKeyDown CVar, the client's default
     WoW.focus = nil             -- the edit box with the keyboard focus (WowTestKit #89)
-    for _, fn in ipairs(WoW.onReset) do fn() end
+    for _, fn in ipairs(WoW.onReset) do fn(opts) end
 end
 
 --------------------------------------------------------------------------------

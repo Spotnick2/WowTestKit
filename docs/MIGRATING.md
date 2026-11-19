@@ -306,3 +306,10 @@ its model is one the tests rely on.
   its and AltStable's own `CreateActor` can go (one kept still wins). An actor method the build
   lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
   `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.
+
+### A state-only reset (WowTestKit #80)
+
+- **A state-only reset** (#80): `WoW.reset({ keepFrames = true })` keeps the frames made so far,
+  `WoW.widgets` and `WoW.methodsCalled`. LibGroupBuffs' `-- WowTestKit #80:` `WoW.reset` (it
+  emptied `WoW.frames` before the kit's reset, then put the three back) goes: call the kit's with
+  `{ keepFrames = true }`. `WoW.reset()` with no opts is unchanged.
