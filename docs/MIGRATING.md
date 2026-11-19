@@ -237,7 +237,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Widget methods the stubs had (WowTestKit #78, #89)
+### Widget methods the stubs had (WowTestKit #78, #89, #92)
 
 The core now implements methods most consumers had in their own stub. Each read as a method
 before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
@@ -269,6 +269,12 @@ its model is one the tests rely on.
   parents (porting guide, "GetCenter is in the frame's OWN space"), so 1 only while nothing is
   scaled. A test's `_escale` still wins. A test that scaled a frame and expected 1 sets `_escale`;
   Gnomesweeper's chain goes.
+- **`SetPoint` replaces the anchor a frame already has for that point** (#92), as the client keeps
+  one anchor per point; a secure handle's `SetPoint` too, and a second `SetAllPoints` replaces the
+  first. `ClearPoint(point)` removes one. A frame re-anchored without `ClearAllPoints` now counts
+  each point once in `#f._points` and `GetNumPoints()`, and a replaced anchor moves to the end of
+  the list, so `GetPoint(i)` / `f._points[i]` may read another anchor than before. GlassRaidFrames'
+  `-- WowTestKit #92:` `SetPoint` and its `ClearPoint` go.
 
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 

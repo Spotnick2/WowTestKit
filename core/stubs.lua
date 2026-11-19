@@ -432,10 +432,31 @@ end
 function Methods.SetShown(w, v) if v then Methods.Show(w) else Methods.Hide(w) end end
 function Methods.IsShown(w) return w._shown end
 function Methods.IsVisible(w) return visible(w) end
+-- One anchor per point (WowTestKit #92): SetPoint on a point the frame
+-- already has replaces that anchor; only ClearAllPoints and ClearPoint
+-- remove one. GetPoint(i), GetNumPoints and ClearPoint read the same list,
+-- w._points. A replaced anchor moves to the end of the list (the order
+-- GetPoint(i) gives on the client isn't measured). Blizzard's code relies on
+-- the replacement: SecureGroupHeaders.lua's configureChildren re-anchors
+-- each shown child on every pass with no ClearAllPoints (:202-211,
+-- wow-ui-source forever 70959). A secure
+-- handle's SetPoint does the same. SetAllPoints's { "ALL", rel } is one
+-- point here, replaced the same way.
+local function dropPoint(w, point)
+    for i = #w._points, 1, -1 do
+        if w._points[i][1] == point then table.remove(w._points, i) end
+    end
+end
+local function anchor(w, point, ...)
+    dropPoint(w, point)
+    table.insert(w._points, { point, ... })
+end
 function Methods.SetPoint(w, ...)
     if refused(w, "SetPoint") then return end
-    table.insert(w._points, { ... })
+    anchor(w, ...)
 end
+-- Removes that point's anchor; one the frame doesn't have is ignored.
+function Methods.ClearPoint(w, point) dropPoint(w, point) end
 function Methods.ClearAllPoints(w)
     if refused(w, "ClearAllPoints") then return end
     w._points = {}
@@ -448,7 +469,7 @@ end
 function Methods.GetNumPoints(w) return #w._points end
 function Methods.SetAllPoints(w, rel)
     if refused(w, "SetAllPoints") then return end   -- a re-anchor, like SetPoint
-    table.insert(w._points, { "ALL", rel })
+    anchor(w, "ALL", rel)
 end
 function Methods.SetSize(w, x, y) w._width, w._height = x, y end
 function Methods.SetWidth(w, x) w._width = x end
@@ -1422,7 +1443,7 @@ function HANDLE:SetPoint(point, rel, relPoint, x, y)
     else
         error("Invalid relative frame id '" .. tostring(rel) .. "'", 2)
     end
-    table.insert(w._points, { point, relFrame, relPoint, x, y })
+    anchor(w, point, relFrame, relPoint, x, y)   -- one anchor per point (#92)
 end
 function HANDLE:GetWidth() return frameOf(self)._width end
 function HANDLE:GetHeight() return frameOf(self)._height end
