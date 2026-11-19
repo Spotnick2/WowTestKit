@@ -260,3 +260,10 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
 - **`Kit.checkToc` takes `{ version = "dev" }`** (#84) for an addon that's never packaged: it
   checks that whole `## Version:` line instead of the packager's token (the default, unchanged).
   ForeverProbe's `-- WowTestKit #84:` checks go.
+- **A model scene actor is a `ModelSceneActor` widget** (#90): each build's widget methods have
+  that type (the dump's `FrameAPIModelSceneFrameActor` and `...ActorBase` functions), and the
+  core's `ModelScene:CreateActor()` makes one, kept in `scene._actors`. `Kit.checkMethods` checks
+  an actor's calls like any widget's: Gnomesweeper's `-- WowTestKit #90:` `allow` entries go, and
+  its and AltStable's own `CreateActor` can go (one kept still wins). An actor method the build
+  lacks now reads `nil`, as on any widget (#22): a mixin's (`ModelSceneActorMixin`'s
+  `SetOnModelLoadedCallback`...) needs `Kit.allowMethods`.

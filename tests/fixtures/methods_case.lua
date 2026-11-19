@@ -27,6 +27,13 @@ elseif case == "noreason" or case == "allowedlate" then
     WoW.Methods.GetMapID = function() return 1 end
     CreateFrame("Frame"):GetMapID()
     allow = { ["Frame:GetMapID"] = case == "allowedlate" and "MapCanvasMixin (Blizzard_MapCanvas)" or "" }
+elseif case == "actor" or case == "actorframe" then
+    -- A model scene actor's own methods are in the build (WowTestKit #90); a
+    -- frame's aren't, even with an implementation (Methods.SetPoint).
+    local a = CreateFrame("ModelScene"):CreateActor()
+    a:SetModelByCreatureDisplayID(1)
+    a:SetAutoDress(false)
+    if case == "actorframe" then a:SetPoint("CENTER") end
 elseif case == "allowed" then
     Kit.allowMethods({ ["Frame:GetMapID"] = "MapCanvasMixin (Blizzard_MapCanvas)" })
     CreateFrame("Frame"):GetMapID()

@@ -810,6 +810,21 @@ function Methods.CreateAnimation(ag, atype) return newWidget(atype or "Animation
 function Methods.Play(ag) ag._playing = true end
 function Methods.Stop(ag) ag._playing = false end
 function Methods.IsPlaying(ag) return ag._playing == true end
+-- A model scene's actors (WowTestKit #90), kept in scene._actors in creation
+-- order, as AltStable's and Gnomesweeper's stubs did. A widget of type
+-- ModelSceneActor, so Kit.checkMethods checks its calls against the build's
+-- ModelSceneActor pairs (the dump's FrameAPIModelSceneFrameActor and ...Base
+-- functions); the client's GetObjectType() for an actor is unmeasured. Like an
+-- animation, it isn't a frame: not in WoW.frames or the scene's _children, so
+-- no event, OnUpdate or OnShow / OnHide walk reaches it. Its name isn't made
+-- a global and its template adds nothing (neither measured).
+function Methods.CreateActor(scene, name, template)
+    local a = newWidget("ModelSceneActor", scene, name)
+    a._template = template
+    scene._actors = scene._actors or {}   -- a stub's own scene table
+    table.insert(scene._actors, a)
+    return a
+end
 
 --------------------------------------------------------------------------------
 -- Globals the mechanics need (each in the dump's _G walk; UIParent is
