@@ -203,6 +203,11 @@ end
 -- SetAlpha on the protected frame, and any write to its regions (a texture's
 -- or font string's Show, Hide, SetShown, its texture). SetAllPoints,
 -- RegisterForClicks, StartMoving and StopMovingOrSizing weren't in the sweep.
+-- ClearPoint and StartSizing (#89, #92) are read, not measured: the build's
+-- generated API documentation flags them IsProtectedFunction
+-- (SimpleScriptRegionResizingAPIDocumentation.lua, SimpleFrameAPIDocumentation.lua,
+-- wow-ui-source forever 70959), as it flags every method above that was
+-- measured, and not SetAlpha, measured as allowed.
 WoW.PROTECTED = {
     Show = true, Hide = true, SetShown = true,
     SetPoint = true, ClearAllPoints = true, SetAllPoints = true,
@@ -210,6 +215,7 @@ WoW.PROTECTED = {
     SetSize = true, SetWidth = true, SetHeight = true, SetScale = true,
     SetFrameStrata = true, SetFrameLevel = true, EnableMouse = true,
     StartMoving = true, StopMovingOrSizing = true, SetClampedToScreen = true,
+    ClearPoint = true, StartSizing = true,
 }
 
 -- Animation subtypes may call their own methods (the dump's

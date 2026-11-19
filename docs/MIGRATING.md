@@ -154,7 +154,7 @@ frames out of the parents that survive it.
 In combat a protected frame refuses every method in `WoW.PROTECTED` (Show, Hide, SetShown,
 SetPoint, ClearAllPoints, SetAllPoints, SetAttribute, RegisterForClicks, SetSize, SetWidth,
 SetHeight, SetScale, SetFrameStrata, SetFrameLevel, EnableMouse, StartMoving, StopMovingOrSizing,
-SetClampedToScreen) and records `name:Method` in
+SetClampedToScreen, ClearPoint, StartSizing) and records `name:Method` in
 `WoW.blocked`. A frame that parents a protected one, at any depth, is protected too (measured);
 `IsProtected()` returns `protected, explicitly`.
 
