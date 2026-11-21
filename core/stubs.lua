@@ -632,9 +632,15 @@ function Methods.SetMouseMotionEnabled(w, on) w._motion = on == true end
 -- StartMoving and StopMovingOrSizing are refused in combat on a protected
 -- frame (WoW.PROTECTED), so a drag stopped then stays on. SetResizeBounds
 -- is kept as given in w._resizeBounds ({ minW, minH, maxW, maxH }); sizes
--- aren't clamped to it.
+-- aren't clamped to it. SetClampedToScreen keeps w._clamped (WowTestKit
+-- #104), which IsClampedToScreen reads: false until set (the dump:
+-- IsClampedToScreen() -> clampedToScreen:bool). The frame isn't kept on
+-- screen. In combat a protected frame refuses SetClampedToScreen
+-- (WoW.PROTECTED), so it keeps its clamp.
 function Methods.SetMovable(w, on) w._movable = on == true end
 function Methods.IsMovable(w) return w._movable == true end
+function Methods.SetClampedToScreen(w, on) w._clamped = on == true end
+function Methods.IsClampedToScreen(w) return w._clamped == true end
 function Methods.StartMoving(w) w._moving = true end
 function Methods.StartSizing(w, point) w._sizing, w._sizingPoint = true, point end
 function Methods.StopMovingOrSizing(w) w._moving, w._sizing, w._sizingPoint = false, false, nil end

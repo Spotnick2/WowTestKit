@@ -9,6 +9,7 @@ b:SetSize(10, 10)
 b:SetAttribute("type", "macro")
 b:EnableMouse(true)
 b:SetPoint("TOPLEFT")
+b:SetClampedToScreen(true)
 local plain = CreateFrame("Frame", nil, UIParent)
 
 WoW.combat = true
@@ -38,6 +39,7 @@ check(b:GetFrameLevel() ~= 9, "nor SetFrameLevel")
 eq(b:GetPoint(1), "TOPLEFT", "nor ClearPoint")
 check(not b._sizing, "nor StartSizing")
 check(b:IsMouseEnabled(), "nor EnableMouse(false)")
+check(b:IsClampedToScreen(), "nor SetClampedToScreen(false) (#104)")
 check(WoW.methodsCalled["Button:SetAttribute"], "a refused call is still recorded for the methods check")
 
 -- A consumer's replacement keeps the refusal.
