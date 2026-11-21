@@ -136,8 +136,10 @@ then OnUpdate at the step's end.
 - **A calendar clock, `time()`** (#103), reads `WoW.epoch` (1790000000 until a test sets it),
   which moves with `WoW.now` wherever the core moves it: `WoW.advance` at each timer's due time,
   `WoW.tick` and `WoW.step`. It stays whole seconds (the core carries the fraction), so
-  `time() == WoW.epoch` always. A test that sets it starts from that second; `WoW.reset` leaves it
-  alone, as it does `WoW.now`; `time(t)` is `os.time(t)`. A stub's own `time()` still wins. One
+  `time() == WoW.epoch` always. `WoW.reset` leaves it where it is, as it does `WoW.now`. The
+  fraction carried is dropped by `WoW.reset` and when a test changes either clock, so a reset hook
+  that starts both over at the same epoch begins its session at a whole second. `time(t)` is
+  `os.time(t)`. A stub's own `time()` still wins. One
   that returns `WoW.epoch` (GuildSpy, Gnomesweeper, Shatter, GlassGear) now sees it move with
   the clock, in whole seconds; their tests pass unchanged, and the stub's `time()` can go.
   GuildSpy's `-- WowTestKit #103:` `WoW.advance` override goes too (its 21 files pass without

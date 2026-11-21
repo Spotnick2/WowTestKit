@@ -87,6 +87,36 @@ eq(time(), 2000, "set by a test, it doesn't carry the 0.75 s from before")
 WoW.tick(0.5)
 eq(time(), 2001, "and counts from there")
 
+-- Two sessions that start at the same epoch (#105's review): a consumer's
+-- reset hook puts both clocks back, WoW.epoch to the number it already reads.
+-- The second session doesn't inherit the first one's part second.
+local function session() WoW.now, WoW.epoch = 0, 1790000000 end
+table.insert(WoW.onReset, session)
+WoW.reset()
+WoW.tick(0.75)
+eq(time(), 1790000000, "session 1, 0.75 s in: still its first second")
+WoW.reset()
+WoW.tick(0.5)
+eq(time(), 1790000000, "session 2, 0.5 s in: the 0.75 s carried from session 1 is gone")
+table.remove(WoW.onReset)
+
+-- The same without WoW.reset: a test that puts WoW.now back and writes
+-- WoW.epoch's own value starts over too.
+WoW.now, WoW.epoch = 0, 1000
+WoW.tick(0.75)
+WoW.now, WoW.epoch = 0, 1000
+WoW.tick(0.5)
+eq(time(), 1000, "both clocks set again, the epoch to its own value: no carry")
+
+-- And WoW.reset alone drops it, the clocks left where they are.
+WoW.now, WoW.epoch = 0, 1000
+WoW.tick(0.75)
+WoW.reset()
+eq(time(), 1000, "WoW.reset leaves the calendar clock where it is")
+eq(GetTime(), 0.75, "and GetTime()")
+WoW.tick(0.5)
+eq(time(), 1000, "but drops the fraction carried")
+
 -- Float drift: ten 0.1 s add up to 0.9999999999999999, and still make a second.
 WoW.now, WoW.epoch = 0, 3000
 for _ = 1, 10 do WoW.tick(0.1) end
