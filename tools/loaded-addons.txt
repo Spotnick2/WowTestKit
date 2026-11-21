@@ -29,6 +29,7 @@ Gnomesweeper
 GuildSpy
 Magely
 NodeRadar
+OneTwoThree
 ParseBuddy
 PetStable
 PortalRoulette
