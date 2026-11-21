@@ -112,7 +112,7 @@ period; `WoW.flushTimers` runs it once and keeps it.
   flush or period.
 - A record a stub put in `WoW.timers` itself still runs once (GlassChat's own `NewTicker`).
 
-### Timers run at their due time (WowTestKit #86, #76)
+### Timers run at their due time (WowTestKit #86, #76, #103)
 
 Not a `Kit.API` change: a pin bumped past it sees it with `api=` unchanged. `WoW.advance(dt)` runs
 each due timer in due order with `GetTime()` at its due time (or now, if it was already overdue),
@@ -133,6 +133,19 @@ then OnUpdate at the step's end.
   with the clock where the advance started. Before, `advance(0)` fired it only the first time. A
   stub's `advance(0)` that moved the clock by `1e-9` to work around it can go (PortalRoulette's
   `tests/wow_stubs.lua`).
+- **A calendar clock, `time()`** (#103), reads `WoW.epoch` (1790000000 until a test sets it),
+  which moves with `WoW.now` wherever the core moves it: `WoW.advance` at each timer's due time,
+  `WoW.tick` and `WoW.step`. It stays whole seconds (the core carries the fraction), so
+  `time() == WoW.epoch` always. `WoW.reset` leaves it where it is, as it does `WoW.now`. The
+  fraction carried is dropped by `WoW.reset` and when a test changes either clock, so a reset hook
+  that starts both over at the same epoch begins its session at a whole second. `time(t)` is
+  `os.time(t)`. A stub's own `time()` still wins. One
+  that returns `WoW.epoch` (GuildSpy, Gnomesweeper, Shatter, GlassGear) now sees it move with
+  the clock, in whole seconds; their tests pass unchanged, and the stub's `time()` can go.
+  GuildSpy's `-- WowTestKit #103:` `WoW.advance` override goes too (its 21 files pass without
+  it). A stub whose `time()` reads another field (`WoW.now`, `WoW.clock`, `WoW.time`) is
+  unaffected until it moves to `WoW.epoch`. `Kit.checkCore()` checks `time` too: two more
+  checks in a file that calls it.
 
 ### OnShow / OnHide fire on a visibility change, down the tree (WowTestKit #21, #46, #99)
 
