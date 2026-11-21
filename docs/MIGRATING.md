@@ -282,7 +282,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Widget methods the stubs had (WowTestKit #78, #89, #92, #97)
+### Widget methods the stubs had (WowTestKit #78, #89, #92, #97, #104)
 
 The core now implements methods most consumers had in their own stub. Each read as a method
 before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
@@ -323,6 +323,9 @@ its model is one the tests rely on.
 - **`GetVertexColor()` and `GetNumMaskTextures()`** (#97) read back what `SetVertexColor` and
   `AddMaskTexture` / `RemoveMaskTexture` set: white and 0 until set, and an alpha left out reads 1
   (both defaults unmeasured). GlassNameplates' `-- WowTestKit #97:` pair goes.
+- **`SetClampedToScreen` keeps the clamp** (#104) in `_clamped`, which `IsClampedToScreen()`
+  reads (false until set; only `true` clamps, as with `SetMovable`). A protected frame in combat
+  still refuses it, and keeps its clamp. Gnomesweeper's `-- WowTestKit #104:` pair goes.
 
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
