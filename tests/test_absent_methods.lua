@@ -13,7 +13,7 @@ check(type(model.SetModel) == "function", "a method the build has reads as a fun
 check(type(model.Show) == "function", "and an implemented one too")
 
 local f = CreateFrame("Frame", nil, UIParent)
-check(type(f.SetClampedToScreen) == "function", "a real method without an implementation reads as a function")
+check(type(f.SetHitRectInsets) == "function", "a real method without an implementation reads as a function")
 eq(f.GetMapID, nil, "a mixin method reads as nil until allowed")
 Kit.allowMethods({ ["Frame:GetMapID"] = "MapCanvasMixin (Blizzard_MapCanvas)" })
 check(type(f.GetMapID) == "function", "allowed, it reads as a function")

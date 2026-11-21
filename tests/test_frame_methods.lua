@@ -71,6 +71,12 @@ check(win._sizing == false and win._sizingPoint == nil, "StopMovingOrSizing stop
 win:SetResizeBounds(200, 100, 800, 600)
 local rb = win._resizeBounds
 check(rb[1] == 200 and rb[2] == 100 and rb[3] == 800 and rb[4] == 600, "SetResizeBounds is kept as given")
+check(not win:IsClampedToScreen(), "a frame isn't clamped to the screen until set (#104)")
+win:SetClampedToScreen(true)
+check(win:IsClampedToScreen(), "SetClampedToScreen(true) clamps it")
+eq(win._clamped, true, "kept in w._clamped")
+win:SetClampedToScreen(false)
+check(not win:IsClampedToScreen(), "SetClampedToScreen(false) unclamps it")
 
 -- Clicks a button registered: as given, a later call replaces them.
 local btn = CreateFrame("Button", nil, UIParent)
