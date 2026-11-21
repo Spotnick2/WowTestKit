@@ -1148,6 +1148,31 @@ function print(...)
 end
 
 function GetTime() return WoW.now or 0 end
+-- The calendar clock (WowTestKit #103): time() reads WoW.epoch, the seconds
+-- since 1970 (1790000000, 2026-09-21, until a test sets it). Wherever the
+-- core moves WoW.now, WoW.epoch moves with it: WoW.advance at each timer's
+-- due time, WoW.tick, WoW.step. It stays whole seconds, as Lua 5.1's os.time
+-- is (the client's time() isn't measured): the core carries the fraction,
+-- so 0.5 s then 0.5 s is one second, and fifty 0.02 s ticks are one despite
+-- float drift. So time() == WoW.epoch always, and a stub's own
+-- `time() return WoW.epoch` keeps whole seconds too. A test that sets
+-- WoW.epoch (a login an hour later: WoW.epoch = WoW.epoch + 3600) starts
+-- from that second, the fraction dropped; one that sets WoW.now moves only
+-- GetTime(). WoW.reset leaves both clocks alone. time(t) is os.time(t).
+WoW.epoch = 1790000000
+local epochFraction, epochWritten = 0, WoW.epoch
+local function moveClock(to)
+    if WoW.epoch ~= epochWritten then epochFraction = 0 end   -- a test set it
+    local total = epochFraction + (to - WoW.now)
+    local whole = math.floor(total + 1e-6)
+    WoW.epoch, epochFraction = WoW.epoch + whole, total - whole
+    epochWritten = WoW.epoch
+    WoW.now = to
+end
+function time(t)
+    if t ~= nil then return os.time(t) end
+    return WoW.epoch
+end
 -- The client's locale code (dump: GetLocale() -> localeName:cstring). A test
 -- sets WoW.locale ("deDE", "koKR"...); enUS until it does (WowTestKit #62).
 function GetLocale() return WoW.locale or "enUS" end
@@ -1247,7 +1272,7 @@ function WoW.advance(dt)
         end
         if not due then break end
         local t = table.remove(WoW.timers, due)
-        if at > WoW.now then WoW.now = at end   -- never back: max(due, now)
+        if at > WoW.now then moveClock(at) end   -- never back: max(due, now)
         -- A 0-second ticker is due again at once: on the client it fires once
         -- a frame, so here once an advance, advance(0) included (WowTestKit
         -- #76). It is re-armed at the time it fired, so the next advance
@@ -1256,7 +1281,7 @@ function WoW.advance(dt)
         if t.every and t.every <= 0 then once[t], nextAt = true, WoW.now end
         fireTimer(t, nextAt)   -- a cancelled one never fires
     end
-    if WoW.now < target then WoW.now = target end   -- a callback's own advance may be past it
+    if WoW.now < target then moveClock(target) end   -- a callback's own advance may be past it
 end
 
 --------------------------------------------------------------------------------
@@ -1346,7 +1371,8 @@ end
 -- below is a frame with its timers.
 function WoW.tick(elapsed)
     elapsed = elapsed or 0.02
-    WoW.now = (WoW.now or 0) + elapsed
+    WoW.now = WoW.now or 0
+    moveClock(WoW.now + elapsed)
     runOnUpdates(elapsed)
 end
 
@@ -2108,7 +2134,7 @@ WoW.reset()
 -- The client globals this core defines, for the kit's own check that each is
 -- in the build's globals list. FrameXML names (not in a function list) are
 -- listed apart, each with where it comes from.
-Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "GetLocale", "InCombatLockdown",
+Kit.CORE_GLOBALS = { "CreateFrame", "issecretvalue", "print", "GetTime", "time", "GetLocale", "InCombatLockdown",
                      "strmatch", "hooksecurefunc", "C_Timer", "pcall", "xpcall", "GetCursorPosition",
                      "SecureHandlerSetFrameRef", "SecureHandlerExecute", "SecureHandlerWrapScript",
                      "SecureHandlerUnwrapScript", "SecureCmdOptionParse", "RegisterAttributeDriver",
