@@ -82,7 +82,23 @@ eq(KitOldTexture, texture, "and a named region's")
 local ok, err = pcall(WoW.reset, { keepFrames = true, releaseNames = true })
 check(not ok and tostring(err):find("releaseNames", 1, true), "releaseNames can't go with keepFrames: " .. tostring(err))
 eq(KitKeptWindow, window, "and the refused reset released nothing")
+-- A named region on a parent the reset keeps (Codex review of #112).
+local function uiRegions() return { UIParent:GetRegions() } end
+local nUIRegions = #uiRegions()
+local function makeUITexture()   -- an addon's init, guarded by name
+    if not KitUITexture then UIParent:CreateTexture("KitUITexture") end
+    return KitUITexture
+end
+local oldUITexture = makeUITexture()
+WoW.reset({})
+eq(#uiRegions(), nUIRegions + 1, "a default reset leaves a region on a parent it keeps")
 WoW.reset({ releaseNames = true })
+eq(KitUITexture, nil, "releaseNames releases a region on a parent the reset keeps")
+eq(#uiRegions(), nUIRegions, "and takes it out of that parent's regions")
+local newUITexture = makeUITexture()
+check(newUITexture ~= oldUITexture, "so the guarded init makes it again")
+eq(#uiRegions(), nUIRegions + 1, "and GetRegions lists it once")
+eq(uiRegions()[#uiRegions()], newUITexture, "the new one")
 eq(KitOldTexture, nil, "releaseNames removes a named region")
 eq(KitReplacedName, "consumer value", "and keeps a consumer's replacement global")
 eq(KitKeptWindow, nil, "and releases the discarded frame's name")

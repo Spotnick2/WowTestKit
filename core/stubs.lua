@@ -375,10 +375,20 @@ WoW.isWidget = isWidget
 
 -- A named widget is a global, as on the client. WoW.published remembers each
 -- name the core set, so a fresh client can take the old client's off (#45).
+-- A released region also comes out of its parent's regions: a full reset
+-- detaches only frames, so a named texture made on a parent that survives it
+-- (UIParent, a stub's frame) would be listed twice by GetRegions once a
+-- guarded addon makes it again (#110).
 WoW.published = {}
 function WoW.clearPublishedWidgets()
     for name, w in pairs(WoW.published) do
-        if rawget(_G, name) == w then rawset(_G, name, nil) end
+        if rawget(_G, name) == w then
+            rawset(_G, name, nil)
+            local regions = w._parent and w._parent._regions
+            for i, r in ipairs(regions or {}) do
+                if r == w then table.remove(regions, i); break end
+            end
+        end
     end
     WoW.published = {}
 end
