@@ -139,9 +139,20 @@ local dropClockFraction   -- the calendar clock's carry (#103, below)
 -- load's calls), and so are their state drivers (#77), as their event
 -- registrations are. Everything else is cleared as by WoW.reset(): chat,
 -- combat, timers (a ticker started at load is dropped too), WoW.blocked...
+-- WoW.reset({ releaseNames = true }) also takes the globals of the widgets
+-- the core named off _G, if they still point at them (#110), as a /reload
+-- would: an addon that guards creation by name builds its frame again. Not
+-- the default: a test that keeps a named frame past a reset (a stub's
+-- Minimap, an addon's own sheet) still reads it by name. It can't go with
+-- keepFrames, which keeps those frames.
 -- Each WoW.onReset function gets the same opts.
 function WoW.reset(opts)
     local keepFrames = type(opts) == "table" and opts.keepFrames == true
+    local releaseNames = type(opts) == "table" and opts.releaseNames == true
+    if keepFrames and releaseNames then
+        error("WoW.reset: releaseNames releases the names of discarded frames, and keepFrames keeps them", 2)
+    end
+    if releaseNames then WoW.clearPublishedWidgets() end
     -- The frames made so far are discarded: events and OnUpdate no longer
     -- reach them, and neither does a parent's OnShow / OnHide walk (#46).
     -- Each comes out of its parent's children, so a frame that survives the
@@ -365,6 +376,12 @@ WoW.isWidget = isWidget
 -- A named widget is a global, as on the client. WoW.published remembers each
 -- name the core set, so a fresh client can take the old client's off (#45).
 WoW.published = {}
+function WoW.clearPublishedWidgets()
+    for name, w in pairs(WoW.published) do
+        if rawget(_G, name) == w then rawset(_G, name, nil) end
+    end
+    WoW.published = {}
+end
 local function publish(name, w)
     rawset(_G, name, w)
     WoW.published[name] = w
