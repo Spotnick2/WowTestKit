@@ -221,6 +221,22 @@ WoW.Methods.GetStringWidth = function() return 99 end
 eq(label:GetStringWidth(), 99, "a consumer replaces WoW.Methods.GetStringWidth")
 WoW.Methods.GetStringWidth = coreWidth
 
+-- The unbounded widths (WowTestKit #107): GetStringWidth's rule, ignoring
+-- the width set; the ForText one measures its argument, not the text.
+local wide = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+eq(wide:GetUnboundedStringWidth(), 0, "unbounded: no text, width 0")
+wide:SetText("ab\nabcde")
+eq(wide:GetUnboundedStringWidth(), 30, "unbounded: the widest line's width")
+wide:SetText(string.rep("x", 25))
+wide:SetWidth(60)
+eq(wide:GetUnboundedStringWidth(), 150, "unbounded: the width set doesn't cap it")
+eq(wide:GetUnboundedStringWidthForText("abc"), 18, "for text: its argument's width")
+eq(wide:GetUnboundedStringWidthForText("abc\nab"), 18, "for text: the widest line's")
+eq(wide:GetUnboundedStringWidthForText(12345), 30, "for text: a number's characters")
+eq(wide:GetUnboundedStringWidthForText(""), 0, "for text: an empty text is 0")
+eq(wide:GetUnboundedStringWidthForText(nil), 0, "for text: no text is 0")
+eq(wide:GetText(), string.rep("x", 25), "for text: the string's own text is unchanged")
+
 -- WoW.reset() clears the focus.
 box1:SetFocus()
 WoW.reset()
