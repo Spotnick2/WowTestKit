@@ -70,3 +70,4 @@ try {
         Remove-Item -LiteralPath $resolved -Force -Recurse
     }
 }
+exit 0
