@@ -32,6 +32,7 @@ end
 -- A test that can't run here says so on one line and exits cleanly. The
 -- runners count SKIPPED lines, so a skip is visible, never silent.
 function Kit.skip(name, why)
+    if failed > 0 then return done(name) end
     io.write(string.format("%s: SKIPPED (%s)\n", name, why))
     os.exit(0)
 end

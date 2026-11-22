@@ -27,6 +27,16 @@ jobs:
       - name: Shell syntax
         run: bash -n bootstrap/fetch_kit.sh && bash -n scripts/run.sh
 
+      - name: Consumer runner contracts (Bash and PowerShell)
+        shell: pwsh
+        run: ./tests/runner_contract.ps1
+
+      - name: Smoke test each client build
+        run: |
+          for dir in data/forever-*; do
+            lua5.1 tests/fixtures/build_smoke.lua "${dir##*-}"
+          done
+
       # End to end, as a consumer's CI does it: a repo with tests/kit.pin
       # naming this commit, the bootstrap fetching it by SHA, a test loading it.
       - name: Consumer bootstrap
@@ -41,3 +51,10 @@ jobs:
           cd "$c"
           bash tests/fetch_kit.sh "$RUNNER_TEMP/WowTestKit"
           WOWTESTKIT="$RUNNER_TEMP/WowTestKit" bash "$RUNNER_TEMP/WowTestKit/scripts/run.sh"
+
+  windows-bootstrap:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify cache pin handling
+        run: ./tests/bootstrap_contract.ps1
