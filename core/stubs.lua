@@ -904,23 +904,45 @@ function Methods.GetText(fs) return fs._text end
 -- floor(width / 6) characters a line), unwrapped with no width; 0 with no
 -- text. A secret text (SetFormattedText) reads as none. A consumer that
 -- needs other numbers replaces WoW.Methods.GetStringWidth / GetStringHeight.
-local function textLines(fs)
-    local text = fs._text
+-- GetUnboundedStringWidth (WowTestKit #107) is the same number as
+-- GetStringWidth here, and GetUnboundedStringWidthForText(text) is that rule
+-- applied to its argument (a number counts its characters). That argument is
+-- a required cstring (Nilable = false in Blizzard's
+-- SimpleFontStringAPIDocumentation, 71037), so anything but a string or a
+-- number throws; the message's wording isn't measured. Its SecretArguments is
+-- AllowedWhenUntainted, and the core's callers are all addon code, so a secret
+-- (a proxy or a MarkSecret value) is refused as string.format refuses one:
+-- "secret value touched in Lua", which a pcall counts (WowTestKit #13). The
+-- client's refusal isn't measured. The client's unbounded width, by its name,
+-- ignores the width set (not measured); the core's GetStringWidth already
+-- does, so the two only differ once a consumer replaces one of them.
+local function textLines(text)
     if type(text) == "number" then text = tostring(text) end
     if type(text) ~= "string" or text == "" then return {} end
     local lines = {}
     for line in (text .. "\n"):gmatch("([^\n]*)\n") do lines[#lines + 1] = line end
     return lines
 end
-function Methods.GetStringWidth(fs)
+local function textWidth(text)
     local widest = 0
-    for _, line in ipairs(textLines(fs)) do widest = math.max(widest, #line) end
+    for _, line in ipairs(textLines(text)) do widest = math.max(widest, #line) end
     return widest * 6
+end
+function Methods.GetStringWidth(fs) return textWidth(fs._text) end
+function Methods.GetUnboundedStringWidth(fs) return textWidth(fs._text) end
+function Methods.GetUnboundedStringWidthForText(fs, text)
+    if text ~= nil and secrets[text] then
+        error("secret value touched in Lua: " .. secrets[text] .. " (GetUnboundedStringWidthForText)", 3)
+    end
+    if type(text) ~= "string" and type(text) ~= "number" then
+        error("Usage: FontString:GetUnboundedStringWidthForText(text): text must be a string", 3)
+    end
+    return textWidth(text)
 end
 function Methods.GetStringHeight(fs)
     local perLine = (fs._width or 0) > 0 and math.max(1, math.floor(fs._width / 6)) or math.huge
     local n = 0
-    for _, line in ipairs(textLines(fs)) do n = n + math.max(1, math.ceil(#line / perLine)) end
+    for _, line in ipairs(textLines(fs._text)) do n = n + math.max(1, math.ceil(#line / perLine)) end
     return n * 14
 end
 -- The client formats natively and accepts secrets: with any secret argument,

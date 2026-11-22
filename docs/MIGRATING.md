@@ -284,7 +284,7 @@ checked again. GlassActionBars' and GlassUnitFrames' `-- WowTestKit #8:` blocks 
   reload doubles the count (`test_locate`: 55 checks became 14,980,609; `test_locate2` was still
   running when the machine ran low on memory).
 
-### Widget methods the stubs had (WowTestKit #78, #89, #92, #97, #104)
+### Widget methods the stubs had (WowTestKit #78, #89, #92, #97, #104, #107)
 
 The core now implements methods most consumers had in their own stub. Each read as a method
 before (it's in the build's lists) and returned nil. A stub's own copy still wins; drop it, unless
@@ -328,6 +328,11 @@ its model is one the tests rely on.
 - **`SetClampedToScreen` keeps the clamp** (#104) in `_clamped`, which `IsClampedToScreen()`
   reads (false until set; only `true` clamps, as with `SetMovable`). A protected frame in combat
   still refuses it, and keeps its clamp. Gnomesweeper's `-- WowTestKit #104:` pair goes.
+- **`GetUnboundedStringWidth()` and `GetUnboundedStringWidthForText(text)`** (#107) follow
+  `GetStringWidth`'s approximation: 6 units a character of the widest line, the width set ignored;
+  the second measures its argument, not the string's text. Stakeout's `-- WowTestKit #107:`
+  `GetUnboundedStringWidth` goes; it counted every character, so a multi-line text now reads its
+  widest line.
 
 ### Smaller ones (WowTestKit #7, #38, #41, #62, #84, #87, #90, #91)
 
