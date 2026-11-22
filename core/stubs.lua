@@ -906,8 +906,10 @@ function Methods.GetText(fs) return fs._text end
 -- needs other numbers replaces WoW.Methods.GetStringWidth / GetStringHeight.
 -- GetUnboundedStringWidth (WowTestKit #107) is the same number as
 -- GetStringWidth here, and GetUnboundedStringWidthForText(text) is that rule
--- applied to its argument (a number counts its characters; anything else but
--- a string is 0). The client's unbounded width, by its name, ignores the width
+-- applied to its argument (a number counts its characters, a secret reads as
+-- none). That argument is a required cstring (Nilable = false in Blizzard's
+-- SimpleFontStringAPIDocumentation, 71037), so anything but a string, a number
+-- or a secret throws; the message's wording isn't measured. The client's unbounded width, by its name, ignores the width
 -- set (not measured); the core's GetStringWidth already does, so the two only
 -- differ once a consumer replaces one of them.
 local function textLines(text)
@@ -924,7 +926,12 @@ local function textWidth(text)
 end
 function Methods.GetStringWidth(fs) return textWidth(fs._text) end
 function Methods.GetUnboundedStringWidth(fs) return textWidth(fs._text) end
-function Methods.GetUnboundedStringWidthForText(fs, text) return textWidth(text) end
+function Methods.GetUnboundedStringWidthForText(fs, text)
+    if type(text) ~= "string" and type(text) ~= "number" and not secrets[text] then
+        error("Usage: FontString:GetUnboundedStringWidthForText(text): text must be a string", 3)
+    end
+    return textWidth(text)
+end
 function Methods.GetStringHeight(fs)
     local perLine = (fs._width or 0) > 0 and math.max(1, math.floor(fs._width / 6)) or math.huge
     local n = 0

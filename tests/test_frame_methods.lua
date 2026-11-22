@@ -234,7 +234,13 @@ eq(wide:GetUnboundedStringWidthForText("abc"), 18, "for text: its argument's wid
 eq(wide:GetUnboundedStringWidthForText("abc\nab"), 18, "for text: the widest line's")
 eq(wide:GetUnboundedStringWidthForText(12345), 30, "for text: a number's characters")
 eq(wide:GetUnboundedStringWidthForText(""), 0, "for text: an empty text is 0")
-eq(wide:GetUnboundedStringWidthForText(nil), 0, "for text: no text is 0")
+local ok, err = pcall(wide.GetUnboundedStringWidthForText, wide, nil)
+check(not ok and tostring(err):find("GetUnboundedStringWidthForText", 1, true), "for text: a missing text throws")
+ok = pcall(wide.GetUnboundedStringWidthForText, wide, {})
+check(not ok, "for text: a table isn't a text")
+ok, err = pcall(function() wide:GetUnboundedStringWidthForText() end)
+check(not ok and tostring(err):find("test_frame_methods.lua:241:", 1, true), "for text: the error names the caller's line: " .. tostring(err))
+eq(wide:GetUnboundedStringWidthForText(WoW.Secret("abc")), 0, "for text: a secret is allowed, and reads as none")
 eq(wide:GetText(), string.rep("x", 25), "for text: the string's own text is unchanged")
 
 -- WoW.reset() clears the focus.
