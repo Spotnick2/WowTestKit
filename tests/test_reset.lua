@@ -48,6 +48,7 @@ local opts = { keepFrames = true }
 WoW.reset(opts)
 eq(#WoW.frames, nFrames, "keepFrames: the frame registry is kept")
 eq(WoW.frames[1], window, "with the same frames")
+eq(KitKeptWindow, window, "keepFrames preserves its published name")
 eq(#UIParent._children, nUIChildren, "UIParent keeps its children")
 eq(window._children[1], row, "a kept frame keeps its children")
 eq(#WoW.widgets, nWidgets, "WoW.widgets is kept")
@@ -66,10 +67,50 @@ eq(#WoW.timers, 0, "the timers are cleared")
 eq(#WoW.blocked, 0, "WoW.blocked is cleared")
 eq(got, opts, "each WoW.onReset function gets the opts")
 
+local texture = window:CreateTexture("KitOldTexture")
+window:CreateFontString("KitReplacedName")
+KitReplacedName = "consumer value"
 WoW.reset({})
 eq(#WoW.frames, 0, "without keepFrames the frames are discarded")
 eq(#UIParent._children, nUIChildren - 1, "and leave UIParent")
 eq(got and got.keepFrames, nil, "and WoW.onReset sees the opts given")
+eq(KitKeptWindow, window, "a full reset keeps a discarded frame's name by default")
+eq(KitOldTexture, texture, "and a named region's")
+
+-- releaseNames: the names go too, as on a /reload, so a guarded addon builds
+-- its frame again (#110).
+local ok, err = pcall(WoW.reset, { keepFrames = true, releaseNames = true })
+check(not ok and tostring(err):find("releaseNames", 1, true), "releaseNames can't go with keepFrames: " .. tostring(err))
+eq(KitKeptWindow, window, "and the refused reset released nothing")
+-- A named region on a parent the reset keeps (Codex review of #112).
+local function uiRegions() return { UIParent:GetRegions() } end
+local nUIRegions = #uiRegions()
+local function makeUITexture()   -- an addon's init, guarded by name
+    if not KitUITexture then UIParent:CreateTexture("KitUITexture") end
+    return KitUITexture
+end
+local oldUITexture = makeUITexture()
+WoW.reset({})
+eq(#uiRegions(), nUIRegions + 1, "a default reset leaves a region on a parent it keeps")
+WoW.reset({ releaseNames = true })
+eq(KitUITexture, nil, "releaseNames releases a region on a parent the reset keeps")
+eq(#uiRegions(), nUIRegions, "and takes it out of that parent's regions")
+local newUITexture = makeUITexture()
+check(newUITexture ~= oldUITexture, "so the guarded init makes it again")
+eq(#uiRegions(), nUIRegions + 1, "and GetRegions lists it once")
+eq(uiRegions()[#uiRegions()], newUITexture, "the new one")
+eq(KitOldTexture, nil, "releaseNames removes a named region")
+eq(KitReplacedName, "consumer value", "and keeps a consumer's replacement global")
+eq(KitKeptWindow, nil, "and releases the discarded frame's name")
+local reloadEvents = 0
+if not KitKeptWindow then
+    local rebuilt = CreateFrame("Frame", "KitKeptWindow", UIParent)
+    rebuilt:RegisterEvent("PLAYER_LOGIN")
+    rebuilt:SetScript("OnEvent", function() reloadEvents = reloadEvents + 1 end)
+end
+WoW.fire("PLAYER_LOGIN")
+eq(reloadEvents, 1, "a guarded reload receives the event exactly once")
+eq(events, 1, "the discarded handler receives no second event")
 WoW.reset()
 eq(got, nil, "or none")
 

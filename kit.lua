@@ -72,9 +72,7 @@ function Kit.freshClient()
     Kit.earlierMethodsCalled = Kit.earlierMethodsCalled or {}
     for pair in pairs(called) do Kit.earlierMethodsCalled[pair] = true end
     setmetatable(_G, nil)
-    for name, w in pairs(WoW.published or {}) do
-        if rawget(_G, name) == w then rawset(_G, name, nil) end
-    end
+    WoW.clearPublishedWidgets()
     dofile(Kit.ROOT .. "/core/stubs.lua")
     for _, line in ipairs(strays) do table.insert(WoW.strays, line) end
     if secretBlocked then

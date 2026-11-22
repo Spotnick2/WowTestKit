@@ -58,7 +58,11 @@ An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is 
   OnUpdate no longer reach them): for a suite that loads the addon again after each reset.
   **`WoW.reset({ keepFrames = true })`** keeps the frames (with their parents, children and state
   drivers), `WoW.widgets` and `WoW.methodsCalled`, and clears the rest (timers included): for a
-  file that loads the addon once and resets between sections. Each `WoW.onReset` function gets the same opts.
+  file that loads the addon once and resets between sections. A discarded frame's name still
+  points at it. **`WoW.reset({ releaseNames = true })`** also takes those names off `_G`, unless
+  a test replaced them, as a /reload would. Use it for an addon that guards creation by name
+  (`if not MyFrame then CreateFrame("Frame", "MyFrame") end`). It can't go with `keepFrames`.
+  Each `WoW.onReset` function gets the same opts.
 - **`WoW.onMethodCall`** is a list of functions run as `fn(widget, methodName, ...)` on every call
   made through a widget's methods, after the call is recorded and logged (`w._log`), before the
   combat refusal: a refused call is seen too, with `WoW.combat` and `WoW.isProtected(widget)` as
