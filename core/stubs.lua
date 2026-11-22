@@ -907,9 +907,9 @@ function Methods.GetText(fs) return fs._text end
 -- GetUnboundedStringWidth (WowTestKit #107) is the same number as
 -- GetStringWidth here, and GetUnboundedStringWidthForText(text) is that rule
 -- applied to its argument (a number counts its characters; anything else but
--- a string is 0). The client's unbounded width ignores the width set; the
--- core's GetStringWidth already does, so the two only differ once a consumer
--- replaces one of them.
+-- a string is 0). The client's unbounded width, by its name, ignores the width
+-- set (not measured); the core's GetStringWidth already does, so the two only
+-- differ once a consumer replaces one of them.
 local function textLines(text)
     if type(text) == "number" then text = tostring(text) end
     if type(text) ~= "string" or text == "" then return {} end
