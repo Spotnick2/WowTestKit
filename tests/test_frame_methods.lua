@@ -240,7 +240,19 @@ ok = pcall(wide.GetUnboundedStringWidthForText, wide, {})
 check(not ok, "for text: a table isn't a text")
 ok, err = pcall(function() wide:GetUnboundedStringWidthForText() end)
 check(not ok and tostring(err):find("test_frame_methods.lua:241:", 1, true), "for text: the error names the caller's line: " .. tostring(err))
-eq(wide:GetUnboundedStringWidthForText(WoW.Secret("abc")), 0, "for text: a secret is allowed, and reads as none")
+-- AllowedWhenUntainted: addon code is tainted, so a secret is refused, and a
+-- pcall that swallows the refusal counts it.
+WoW.secretBlocked = 0
+ok, err = pcall(function() wide:GetUnboundedStringWidthForText(WoW.Secret("a label")) end)
+check(not ok and tostring(err):find("secret value touched in Lua: a label", 1, true), "for text: a secret proxy is refused: " .. tostring(err))
+check(tostring(err):find("test_frame_methods.lua:246:", 1, true), "for text: at the caller's line")
+eq(WoW.secretBlocked, 1, "for text: the swallowed refusal is counted")
+local typed = WoW.MarkSecret("a typed secret label (#107)")
+ok = pcall(function() wide:GetUnboundedStringWidthForText(typed) end)
+check(not ok, "for text: a typed secret string is refused too")
+eq(WoW.secretBlocked, 2, "for text: and counted")
+WoW.secrets[typed] = nil
+WoW.secretBlocked = 0
 eq(wide:GetText(), string.rep("x", 25), "for text: the string's own text is unchanged")
 
 -- WoW.reset() clears the focus.

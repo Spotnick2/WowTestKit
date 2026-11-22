@@ -906,12 +906,16 @@ function Methods.GetText(fs) return fs._text end
 -- needs other numbers replaces WoW.Methods.GetStringWidth / GetStringHeight.
 -- GetUnboundedStringWidth (WowTestKit #107) is the same number as
 -- GetStringWidth here, and GetUnboundedStringWidthForText(text) is that rule
--- applied to its argument (a number counts its characters, a secret reads as
--- none). That argument is a required cstring (Nilable = false in Blizzard's
--- SimpleFontStringAPIDocumentation, 71037), so anything but a string, a number
--- or a secret throws; the message's wording isn't measured. The client's unbounded width, by its name, ignores the width
--- set (not measured); the core's GetStringWidth already does, so the two only
--- differ once a consumer replaces one of them.
+-- applied to its argument (a number counts its characters). That argument is
+-- a required cstring (Nilable = false in Blizzard's
+-- SimpleFontStringAPIDocumentation, 71037), so anything but a string or a
+-- number throws; the message's wording isn't measured. Its SecretArguments is
+-- AllowedWhenUntainted, and the core's callers are all addon code, so a secret
+-- (a proxy or a MarkSecret value) is refused as string.format refuses one:
+-- "secret value touched in Lua", which a pcall counts (WowTestKit #13). The
+-- client's refusal isn't measured. The client's unbounded width, by its name,
+-- ignores the width set (not measured); the core's GetStringWidth already
+-- does, so the two only differ once a consumer replaces one of them.
 local function textLines(text)
     if type(text) == "number" then text = tostring(text) end
     if type(text) ~= "string" or text == "" then return {} end
@@ -927,7 +931,10 @@ end
 function Methods.GetStringWidth(fs) return textWidth(fs._text) end
 function Methods.GetUnboundedStringWidth(fs) return textWidth(fs._text) end
 function Methods.GetUnboundedStringWidthForText(fs, text)
-    if type(text) ~= "string" and type(text) ~= "number" and not secrets[text] then
+    if text ~= nil and secrets[text] then
+        error("secret value touched in Lua: " .. secrets[text] .. " (GetUnboundedStringWidthForText)", 3)
+    end
+    if type(text) ~= "string" and type(text) ~= "number" then
         error("Usage: FontString:GetUnboundedStringWidthForText(text): text must be a string", 3)
     end
     return textWidth(text)
