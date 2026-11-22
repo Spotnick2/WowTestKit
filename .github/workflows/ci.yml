@@ -56,5 +56,5 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify cache pin handling
-        run: ./tests/bootstrap_contract.ps1
+      - name: Both bootstraps refuse malformed pins and keep the cache
+        run: ./tests/bootstrap_contract.ps1 -Bash 'C:\Program Files\Git\bin\bash.exe'

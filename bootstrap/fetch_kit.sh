@@ -13,7 +13,10 @@ dest="${1:-}"
 if [ -z "$dest" ]; then echo "usage: bash tests/fetch_kit.sh <dest>   (a path that does not exist yet)" >&2; exit 2; fi
 if [ -e "$dest" ]; then echo "$dest already exists: this script never deletes anything" >&2; exit 2; fi
 
-sha=$(sed -n 's/^[[:space:]]*sha[[:space:]]*=[[:space:]]*\([0-9a-f]\{40\}\).*/\1/p' tests/kit.pin)
+# The same rule as kit.ps1: a trailing " # comment" is dropped, and the whole
+# value must be 40 lowercase hex (so "sha=<40 hex> extra" is refused by both).
+sha=$(sed -n -e 's/[[:space:]]\{1,\}#.*$//' \
+    -e 's/^[[:space:]]*sha[[:space:]]*=[[:space:]]*\([0-9a-f]\{40\}\)[[:space:]]*$/\1/p' tests/kit.pin)
 if [ -z "$sha" ]; then echo "tests/kit.pin has no 40-hex sha=" >&2; exit 1; fi
 
 git init --quiet "$dest"

@@ -55,10 +55,12 @@ try {
         $out = @(& $Lua $_.FullName 2>&1)
         $code = $LASTEXITCODE
         $out | ForEach-Object { Write-Host $_ }
+        # The result is the last line that isn't blank, as in run.sh.
+        $last = [string]($out | Where-Object { "$_".Trim() -ne '' } | Select-Object -Last 1)
         $ran++
         if ($code -ne 0) { $failed++ }
-        elseif ($out[-1] -cmatch '^(.+: SKIPPED \(.+\)|SKIPPED: .+)$') { $skipped++ }
-        elseif ($out[-1] -cnotmatch '^.+: [0-9]+ passed, 0 failed$') {
+        elseif ($last -cmatch '^(.+: SKIPPED \(.+\)|SKIPPED: .+)$') { $skipped++ }
+        elseif ($last -cnotmatch '^.+: [0-9]+ passed, 0 failed$') {
             Write-Host "$($_.Name): missing successful final test result" -ForegroundColor Red
             $failed++
         }

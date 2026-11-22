@@ -22,6 +22,9 @@ try {
         @('io.write("SKIPPED: optional\n")', 0, '1 skipped'),
         @('check(false, "bad") Kit.skip("suite", "optional")', 1, '1 failed'),
         @('io.write("suite: 0 passed, 1 failed\n")', 1, '1 of 1 test file(s) FAILED'),
+        # Blank lines after the result don't count, in either runner.
+        @('io.write("suite: 1 passed, 0 failed\n\n \n")', 0, 'All 1 test files passed'),
+        @('io.write("suite: 0 passed, 1 failed\n\n")', 1, 'missing successful final test result'),
         @('check(false, "bad")', 1, 'missing successful final test result'),
         @('', 1, 'missing successful final test result'),
         @($null, 1, 'No tests/test_*.lua'),

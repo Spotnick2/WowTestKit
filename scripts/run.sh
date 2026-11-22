@@ -39,8 +39,8 @@ for f in tests/test_*.lua; do
     echo "-- $f"
     out="$("$LUA" "$f" 2>&1)"; code=$?
     printf '%s\n' "$out"
-    last=${out##*$'\n'}
-    last=${last%$'\r'}
+    # The result is the last line that isn't blank, as in run.ps1.
+    last=$(printf '%s\n' "$out" | tr -d '\r' | grep -v '^[[:space:]]*$' | tail -n 1)
     ran=$((ran + 1))
     if [ $code -ne 0 ]; then failed=$((failed + 1))
     elif [[ $last =~ $skip_line ]]; then skipped=$((skipped + 1))
