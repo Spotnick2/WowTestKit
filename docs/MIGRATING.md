@@ -9,6 +9,21 @@ To move: bump `sha=` in `tests/kit.pin`, follow each step of the new API below, 
 and run the tests. Compare the counts with the run before the bump. A count may change only for a
 reason the steps name.
 
+## Within API 2
+
+Changes that need no `api=` change, because a consumer they affect fails loudly, with a message:
+
+- **Every test file must end with its result (#109).** The runners pass a file only if it exits 0
+  and its last non-blank line is `<name>: N passed, 0 failed`, `<name>: SKIPPED (why)` or
+  `SKIPPED: why` (blank lines after it don't count). A file with its own reporter gets "missing
+  successful final test result": end it with `done(name)`. The run against the kit showed
+  PetStable affected (8 files end with `PASS: ...`). `Kit.skip` after a failed assertion now
+  reports the failure.
+- **Both bootstraps check the pin (#109).** Copy the new `bootstrap/kit.ps1` and
+  `bootstrap/fetch_kit.sh` into `tests/` when bumping the pin. In both, `sha=` must be 40
+  lowercase hex, a trailing ` # comment` is dropped, and the last `sha=` line is the one that
+  counts. `tests/fetch_kit.sh` now refuses `sha=<40 hex> extra`.
+
 ## API 1 → 2
 
 API 2 is every kit change after `134d55a`, the last API-1 commit (every API-1 pin is at or

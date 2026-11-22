@@ -50,6 +50,12 @@ Local runs and CI use the same pinned commit. The local copy is cached in
 `%LOCALAPPDATA%\WowTestKit\<sha>`, outside the repo, and works offline once fetched.
 `tests\run.ps1 -KitDev` runs against the `..\WowTestKit` working copy instead, to try a kit change.
 
+Each `tests/test_*.lua` ends with `done(name)` or `Kit.skip(name, why)`. The runners pass a file
+only if it exits 0 and its last non-blank line is `<name>: N passed, 0 failed`,
+`<name>: SKIPPED (why)` or `SKIPPED: why` (blank lines after it don't count). A file that stops
+without one of them fails, and so does an empty suite.
+`Kit.skip` after a failed assertion reports the failure, so skip before the first assertion.
+
 An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
 
 ## Resets, call hooks, masks and intrinsics

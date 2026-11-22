@@ -25,7 +25,7 @@ try {
     $luac = Join-Path (Split-Path -Parent $Lua) "luac.exe"
     $files = @()
     if ($Toc) {
-        $files += Get-Content $Toc | ForEach-Object { $_.Trim() } |
+        $files += Get-Content -LiteralPath $Toc | ForEach-Object { $_.Trim() } |
             Where-Object { $_ -notmatch "^#" -and $_ -match "[.]lua$" }
     }
     $files += $Extra
@@ -50,17 +50,25 @@ try {
     }
 
     $failed, $skipped, $ran = 0, 0, 0
-    Get-ChildItem (Join-Path $RepoRoot "tests\test_*.lua") | Sort-Object Name | ForEach-Object {
+    Get-ChildItem -File "tests/test_*.lua" | Sort-Object Name | ForEach-Object {
         Write-Host "-- $($_.Name) " -NoNewline -ForegroundColor Cyan
-        $out = & $Lua $_.FullName 2>&1
+        $out = @(& $Lua $_.FullName 2>&1)
         $code = $LASTEXITCODE
         $out | ForEach-Object { Write-Host $_ }
+        # The result is the last line that isn't blank, as in run.sh.
+        $last = [string]($out | Where-Object { "$_".Trim() -ne '' } | Select-Object -Last 1)
         $ran++
         if ($code -ne 0) { $failed++ }
-        elseif ($out -match "SKIPPED") { $skipped++ }
+        elseif ($last -cmatch '^(.+: SKIPPED \(.+\)|SKIPPED: .+)$') { $skipped++ }
+        elseif ($last -cnotmatch '^.+: [0-9]+ passed, 0 failed$') {
+            Write-Host "$($_.Name): missing successful final test result" -ForegroundColor Red
+            $failed++
+        }
     }
+    if ($ran -eq 0) { Write-Host "No tests/test_*.lua files found" -ForegroundColor Red; exit 1 }
     if ($failed -gt 0) { Write-Host "$failed of $ran test file(s) FAILED" -ForegroundColor Red; exit 1 }
     $note = if ($skipped -gt 0) { " ($skipped skipped)" } else { "" }
     Write-Host "All $ran test files passed$note." -ForegroundColor Green
+    exit 0
 }
 finally { Pop-Location }
