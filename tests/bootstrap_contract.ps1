@@ -27,8 +27,14 @@ try {
     $cache = New-Item -ItemType Directory -Path (Join-Path $repo "WowTestKit/bad-pin")
     $sentinel = Join-Path $cache.FullName "keep.txt"
     Set-Content -LiteralPath $sentinel -Value 'keep'
-    foreach ($sha in 'bad-pin', ('g' * 40), ('a' * 41), ('A' * 40), (('a' * 40) + ' extra')) {
-        Set-Content -LiteralPath $pin -Value "sha=$sha", 'build=70532'
+    # Each case is the pin's sha= line(s). The last one counts, in both
+    # bootstraps: a valid sha= followed by a malformed one is refused.
+    $valid = 'a' * 40
+    $cases = 'sha=bad-pin', "sha=$('g' * 40)", "sha=$('a' * 41)", "sha=$('A' * 40)",
+        "sha=$valid extra", "sha=$valid`nsha=$valid extra"
+    foreach ($case in $cases) {
+        $sha = $case
+        Set-Content -LiteralPath $pin -Value (@($case -split "`n") + 'build=70532')
         try {
             Get-WowTestKit -RepoRoot $repo
             throw "Bootstrap accepted an invalid pin"

@@ -14,12 +14,15 @@ reason the steps name.
 Changes that need no `api=` change, because a consumer they affect fails loudly, with a message:
 
 - **Every test file must end with its result (#109).** The runners pass a file only if it exits 0
-  and its last line is `<name>: N passed, 0 failed`, `<name>: SKIPPED (why)` or `SKIPPED: why`.
-  A file with its own reporter gets "missing successful final test result": end it with
-  `done(name)`. The run against the kit showed PetStable affected (8 files end with `PASS: ...`).
-  `Kit.skip` after a failed assertion now reports the failure.
-- **`tests/kit.ps1` checks the pin (#109).** Copy the new `bootstrap/kit.ps1` when bumping the pin.
-  `sha=` must be 40 lowercase hex, as `fetch_kit.sh` already required.
+  and its last non-blank line is `<name>: N passed, 0 failed`, `<name>: SKIPPED (why)` or
+  `SKIPPED: why` (blank lines after it don't count). A file with its own reporter gets "missing
+  successful final test result": end it with `done(name)`. The run against the kit showed
+  PetStable affected (8 files end with `PASS: ...`). `Kit.skip` after a failed assertion now
+  reports the failure.
+- **Both bootstraps check the pin (#109).** Copy the new `bootstrap/kit.ps1` and
+  `bootstrap/fetch_kit.sh` into `tests/` when bumping the pin. In both, `sha=` must be 40
+  lowercase hex, a trailing ` # comment` is dropped, and the last `sha=` line is the one that
+  counts. `tests/fetch_kit.sh` now refuses `sha=<40 hex> extra`.
 
 ## API 1 → 2
 
