@@ -58,6 +58,27 @@ without one of them fails, and so does an empty suite.
 
 An addon that already has its own stub: [docs/ADOPTING.md](docs/ADOPTING.md) is how to move it over.
 
+## Comparing two pins
+
+A pin bump must leave the tests saying the same thing, or change them for a reason you can name
+([docs/MIGRATING.md](docs/MIGRATING.md)). `tests/kit.ps1`, run directly, checks it:
+
+```powershell
+pwsh tests/kit.ps1 -Compare HEAD                              # the pin HEAD committed vs tests/kit.pin now
+pwsh tests/kit.ps1 -Compare <old kit sha>                     # the same pin with another sha=
+pwsh tests/kit.ps1 -Compare main -Snapshot <script.lua> [-Lua <lua.exe>]
+```
+
+It runs `tests/run.ps1` with the old pin, then with `tests/kit.pin` as it is, and prints only the
+test files whose result line differs (a file Lua stopped shows its error), the summary if it
+differs, and, with `-Snapshot`, whether the load snapshot ([docs/ADOPTING.md](docs/ADOPTING.md),
+section 1) is identical. A commit of the repo gives its whole `tests/kit.pin` (sha, build and
+api), so use one when the bump changes the build: a kit sha replaces `sha=` only. The old pin is
+written into `tests/kit.pin` for its run and the file is put back byte for byte;
+`tests/kit.pin.compare-backup` holds it meanwhile. Exit 0 means nothing differs and both runs
+passed; 1, something differs or a run failed; 2, it couldn't run. Copy the new `kit.ps1` into
+`tests/` first: it's part of the bump.
+
 ## Resets, call hooks, masks and intrinsics
 
 - **`WoW.reset()`** clears the client's state and discards every frame made so far (events and

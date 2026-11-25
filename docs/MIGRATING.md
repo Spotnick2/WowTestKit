@@ -7,7 +7,8 @@ error instead of running the tests under a meaning they weren't written for.
 
 To move: bump `sha=` in `tests/kit.pin`, follow each step of the new API below, set `api=` to it,
 and run the tests. Compare the counts with the run before the bump. A count may change only for a
-reason the steps name.
+reason the steps name. `pwsh tests/kit.ps1 -Compare HEAD` does the comparison (README, "Comparing
+two pins") once the new `bootstrap/kit.ps1` is in `tests/`.
 
 ## Within API 2
 
