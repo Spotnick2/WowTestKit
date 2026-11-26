@@ -152,6 +152,18 @@ function New-WowTestKitLock {
     return $true
 }
 
+# A comparison's own log folder in $Root: the time, this process's id, and a
+# number if that's taken. Created without -Force, so two comparisons never
+# share one, even started in the same second (#121).
+function New-WowTestKitLogDir {
+    param([string]$Stamp = (Get-Date -Format "yyyyMMdd-HHmmss"), [string]$Root = [IO.Path]::GetTempPath())
+    for ($n = 1; ; $n++) {
+        $dir = Join-Path $Root ("WowTestKit-compare-$Stamp-$PID" + $(if ($n -gt 1) { "-$n" }))
+        try { New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null; return $dir }
+        catch { if (-not (Test-Path -LiteralPath $dir)) { throw } }
+    }
+}
+
 function Compare-WowTestKit {
     param(
         [Parameter(Mandatory)][string]$Compare,
@@ -211,7 +223,8 @@ function Compare-WowTestKit {
         }
         return 2
     }
-    $newBytes, $madeBackup = $null, $false
+    $newBytes, $oldBytes, $madeBackup, $logDir = $null, $null, $false, $null
+    $b64 = { param($b) if ($b -is [byte[]]) { [Convert]::ToBase64String($b) } }
     try {
         if (Test-Path -LiteralPath $backup) {
             Write-Host "$backup is left from an earlier -Compare: $(& $backupAdvice). Then run again." -ForegroundColor Red
@@ -251,8 +264,7 @@ function Compare-WowTestKit {
         }
 
         $pwsh = (Get-Process -Id $PID).Path
-        $logDir = Join-Path ([IO.Path]::GetTempPath()) ("WowTestKit-compare-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-        New-Item -ItemType Directory -Force $logDir | Out-Null
+        $logDir = New-WowTestKitLogDir
         $savedKit = $env:WOWTESTKIT
         # One side: tests/run.ps1 as the owner runs it, then the snapshot script
         # against the same kit.
@@ -284,14 +296,21 @@ function Compare-WowTestKit {
             @{ Results = $r; Code = $code; Snapshot = $snap; SnapshotCode = $snapCode }
         }
 
+        # The pin is put back only while it still holds the old pin written here:
+        # anything else is an edit made meanwhile (an editor, a branch switch),
+        # kept, and the comparison stops (#121). The finally below says so.
+        $oldBytes = [Text.UTF8Encoding]::new($false).GetBytes(($oldLines -join "`n") + "`n")
         try {
             try {
-                [IO.File]::WriteAllText($pinPath, (($oldLines -join "`n") + "`n"))
+                if ((& $bytesOf $pinPath) -cne (& $b64 $newBytes)) { return 2 }
+                [IO.File]::WriteAllBytes($pinPath, $oldBytes)
                 $oldSide = & $runSide "old"
-            } finally { [IO.File]::WriteAllBytes($pinPath, $newBytes) }
-            $back = [IO.File]::ReadAllBytes($pinPath)
-            if ([Convert]::ToBase64String($back) -cne [Convert]::ToBase64String($newBytes)) { return 2 }
+            } finally {
+                if ((& $bytesOf $pinPath) -ceq (& $b64 $oldBytes)) { [IO.File]::WriteAllBytes($pinPath, $newBytes) }
+            }
+            if ((& $bytesOf $pinPath) -cne (& $b64 $newBytes)) { return 2 }
             $newSide = & $runSide "new"
+            if ((& $bytesOf $pinPath) -cne (& $b64 $newBytes)) { return 2 }
         } finally { $env:WOWTESTKIT = $savedKit }
 
         # The result lines that differ, in the old run's order.
@@ -362,13 +381,23 @@ function Compare-WowTestKit {
     } finally {
         # Released only once the pin is back: until then the lock and the backup
         # stay, and the next -Compare says what to do.
+        $now = if ($madeBackup) { & $bytesOf $pinPath }
         if (-not $madeBackup) {
             Remove-Item -LiteralPath $lockPath   # the pin was never changed
-        } elseif ((& $bytesOf $pinPath) -ceq [Convert]::ToBase64String($newBytes)) {
+        } elseif ($now -ceq (& $b64 $newBytes)) {
             Remove-Item -LiteralPath $backup
             Remove-Item -LiteralPath $lockPath
-        } else {
+        } elseif ($null -ne $oldBytes -and $now -ceq (& $b64 $oldBytes)) {
             Write-Host "tests\kit.pin could not be put back: move $backup over it, then delete $lockPath" -ForegroundColor Red
+        } else {
+            # Neither pin: someone else's edit, kept. The pin as it was goes to
+            # this comparison's logs, so nothing is lost.
+            if (-not $logDir) { $logDir = New-WowTestKitLogDir }
+            $was = Join-Path $logDir "kit.pin.before"
+            [IO.File]::WriteAllBytes($was, $newBytes)
+            Remove-Item -LiteralPath $backup
+            Remove-Item -LiteralPath $lockPath
+            Write-Host "tests\kit.pin was changed while -Compare ran: it is left as it is, and the comparison stopped. tests\kit.pin as it was before is in $was" -ForegroundColor Red
         }
     }
 }
