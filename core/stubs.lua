@@ -1502,6 +1502,161 @@ WoW.templates.UIPanelScrollFrameTemplate = function(sf)
     bar.ScrollDownButton = CreateFrame("Button", named(bar, "ScrollDownButton"), bar)
 end
 
+-- Blizzard_AuraContainer's custom aura templates (WowTestKit #113), from the
+-- client's source (wow-ui-source forever, 71037, Interface/AddOns/
+-- Blizzard_AuraContainer/...). Their methods come from the secure mixins
+-- (CustomAuraContainerInboundMixin, CustomAuraButtonInboundMixin), not the
+-- widget type, so they're set on the frame: not logged as widget calls, and
+-- not looked for in the build's lists by Kit.checkMethods. Only the methods a
+-- consumer calls (GlassActionBars #115). No aura is matched or shown here: a
+-- test reads what the addon asked for.
+--   container: c._unit, c._enabled (false until SetEnabled(true)),
+--     c._refreshes (UpdateAllAuras requests, the engine's own included),
+--     c._slots[key] = { filter, candidateFilters (a copy), enabled, frame }.
+--   slot frame: f._applicationBar = { bar, options (a copy) }.
+-- Not modelled: the access restrictions applied after initializeFrame, sort
+-- options' validation, the bar's secret aspect, SetIcon (GetIcon returns nil,
+-- as before any SetIcon), aura groups and item enchantments.
+local function deepcopy(v)
+    if type(v) ~= "table" then return v end
+    local c = {}
+    for k, x in pairs(v) do c[k] = deepcopy(x) end
+    return c
+end
+-- AuraUtil.AuraFilters and IsValidFilterString (Blizzard_FrameXMLUtil/
+-- AuraUtil.lua:270, :298): components split on "|" and " ", each one of
+-- these, optionally after "!". A non-string fails in string.split there
+-- (that message is unmeasured).
+local AURA_FILTERS = {}
+for _, f in ipairs({ "HELPFUL", "HARMFUL", "PLAYER", "RAID", "CANCELABLE", "INCLUDE_NAME_PLATE_ONLY",
+                     "MAW", "EXTERNAL_DEFENSIVE", "CROWD_CONTROL", "RAID_IN_COMBAT",
+                     "RAID_PLAYER_DISPELLABLE", "BIG_DEFENSIVE", "IMPORTANT", "DISPELLABLE" }) do
+    AURA_FILTERS[f] = true
+end
+local function checkFilterString(s)
+    if type(s) ~= "string" then error("bad argument #2 to 'split' (string expected, got " .. type(s) .. ")", 3) end
+    for component in s:gmatch("[^| ]+") do
+        local negated = component:sub(1, 1) == "!"
+        if negated then component = component:sub(2) end
+        if negated and component == "" then
+            error("A negation prefix ('!') must be followed by a filter component.", 3)
+        end
+        if component ~= "" and not AURA_FILTERS[component] then
+            error(string.format("Unknown aura filter component: '%s'", component), 3)
+        end
+    end
+end
+-- ValidateCandidateFilters (Blizzard_CustomAuraContainer.lua:72), but
+-- processedAuraType.
+local function checkCandidateFilters(cf)
+    assert(cf == nil or type(cf) == "table", "candidateFilters must be a table or nil.")
+    if cf == nil then return end
+    for _, k in ipairs({ "includeSpellIDs", "excludeSpellIDs", "includeDispelTypes", "excludeDispelTypes" }) do
+        if cf[k] ~= nil then assert(type(cf[k]) == "table", k .. " must be a table or nil") end
+    end
+    if cf.maxDuration ~= nil then
+        assert(type(cf.maxDuration) == "number" and cf.maxDuration >= 0, "maxDuration must be a non-negative number or nil.")
+    end
+    for _, k in ipairs({ "isFromPlayerOrPlayerPet", "isRoleAura", "isPriorityAura", "isStealable",
+                         "nameplateShowAll", "nameplateShowPersonal", "canApplyAura", "isBossAura",
+                         "isBossOrRoleAura" }) do
+        if cf[k] ~= nil then assert(type(cf[k]) == "boolean", k .. " must be a boolean or nil.") end
+    end
+end
+-- GetRequiredAuraSlot (Blizzard_CustomAuraContainer.lua:277).
+local function requiredSlot(c, key)
+    local slot = c._slots[key]
+    if slot == nil then error(string.format("aura slot '%s' was not found with this key.", tostring(key)), 3) end
+    return slot
+end
+WoW.templates.CustomAuraContainerTemplate = function(c)
+    c._slots, c._refreshes, c._enabled = {}, 0, false
+    -- ManagedAuraContainerSharedMixin:UpdateAllAuras (Blizzard_ManagedAuraContainer.lua:63).
+    rawset(c, "UpdateAllAuras", function(self) self._refreshes = self._refreshes + 1 end)
+    -- AuraContainerSharedMixin:SetUnit / SetEnabled (Blizzard_AuraContainer.lua:28, :40):
+    -- a refresh only when the value changes.
+    rawset(c, "SetUnit", function(self, unit)
+        assert(type(unit) == "string")
+        if self._unit ~= unit then self._unit = unit; self:UpdateAllAuras() end
+    end)
+    rawset(c, "SetEnabled", function(self, enabled)
+        if self._enabled ~= enabled then self._enabled = enabled; self:UpdateAllAuras() end
+    end)
+    -- AddAuraSlot (Blizzard_CustomAuraContainer.lua:417) and the frame provider's
+    -- CreateFrame (Blizzard_AuraContainerFrameProviders.lua): an AuraButton with
+    -- CustomAuraButtonTemplate then options.templateNames, initializeFrame called
+    -- with it, then hidden (ApplyVisibility with no aura, Blizzard_CustomAuraButton.lua:694).
+    -- The slot starts enabled (Blizzard_AuraContainerSlots.lua:233).
+    rawset(c, "AddAuraSlot", function(self, key, filter, options)
+        assert(type(key) == "string" and key ~= "", "slotKey must be a non-empty string.")
+        checkFilterString(filter)
+        if self._slots[key] ~= nil then error(string.format("aura slot '%s' already exists with this key.", key), 2) end
+        options = deepcopy(options) or {}
+        if options.templateNames ~= nil then
+            assert(type(options.templateNames) == "table", "templateNames must be a table or nil.")
+            for _, t in ipairs(options.templateNames) do
+                assert(type(t) == "string", "templateNames must contain only strings.")
+            end
+        end
+        assert(options.initializeFrame == nil or type(options.initializeFrame) == "function",
+               "initializeFrame must be a function or nil.")
+        checkCandidateFilters(options.candidateFilters)
+        local templates = table.concat({ "CustomAuraButtonTemplate", unpack(options.templateNames or {}) }, ", ")
+        local f = CreateFrame("AuraButton", nil, self, templates)
+        if options.initializeFrame then options.initializeFrame(f) end
+        Methods.Hide(f)
+        self._slots[key] = { filter = filter, candidateFilters = options.candidateFilters, enabled = true, frame = f }
+        self:UpdateAllAuras()
+        return f
+    end)
+    rawset(c, "GetAuraSlotFrame", function(self, key)
+        local slot = self._slots[key]
+        return slot and slot.frame or nil
+    end)
+    rawset(c, "IsAuraSlotEnabled", function(self, key) return requiredSlot(self, key).enabled end)
+    -- Always a refresh (ManagedAuraContainerPrivateMixin:SetAuraSlotEnabled, :250).
+    rawset(c, "SetAuraSlotEnabled", function(self, key, enabled)
+        assert(type(enabled) == "boolean", "enabled must be a boolean.")
+        requiredSlot(self, key).enabled = enabled
+        self:UpdateAllAuras()
+    end)
+    rawset(c, "SetAuraSlotCandidateFilters", function(self, key, cf)
+        local slot = requiredSlot(self, key)
+        cf = deepcopy(cf) or {}
+        checkCandidateFilters(cf)
+        slot.candidateFilters = cf
+        self:UpdateAllAuras()
+    end)
+end
+WoW.templates.CustomAuraButtonTemplate = function(f)
+    -- CustomAuraButtonSharedMixin:SetApplicationBar (Blizzard_CustomAuraButton.lua:68),
+    -- its object check from AuraContainerUtil.RequireObjectType (Blizzard_AuraContainerUtil.lua:353).
+    rawset(f, "SetApplicationBar", function(self, bar, options)
+        -- The kit's own checks, not the bar's methods: they'd log calls the addon didn't make.
+        if not Methods.IsObjectType(bar, "StatusBar") then
+            error(string.format("bad object '%s' in function call (expected object type 'StatusBar', got '%s')",
+                                Methods.GetDebugName(bar), Methods.GetObjectType(bar)), 2)
+        end
+        self._applicationBar = { bar = bar, options = deepcopy(options) or {} }
+    end)
+    rawset(f, "GetIcon", function(self) return nil end)
+end
+
+-- ActionButtonSpellAlertTemplate (Blizzard_ActionBar/Shared/ActionButtonSpellAlerts.xml:4):
+-- hidden, its ARTWORK textures ProcStartFlipbook, ProcLoopFlipbook and
+-- ProcAltGlow (hidden), its animation groups ProcLoop and ProcStartAnim.
+-- The animations in them, the atlases and ActionButtonSpellAlertMixin's
+-- scripts aren't modelled.
+WoW.templates.ActionButtonSpellAlertTemplate = function(w)
+    Methods.Hide(w)
+    w.ProcStartFlipbook = Methods.CreateTexture(w, nil, "ARTWORK")
+    w.ProcLoopFlipbook = Methods.CreateTexture(w, nil, "ARTWORK")
+    w.ProcAltGlow = Methods.CreateTexture(w, nil, "ARTWORK")
+    Methods.Hide(w.ProcAltGlow)
+    w.ProcLoop = Methods.CreateAnimationGroup(w)
+    w.ProcStartAnim = Methods.CreateAnimationGroup(w)
+end
+
 -- What a snippet sees besides its environment's own names: the restricted
 -- scope (RestrictedEnvironment.lua's RESTRICTED_FUNCTIONS_SCOPE and
 -- RestrictedExecution.lua's LOCAL_Restricted_Global_Functions), with plain

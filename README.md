@@ -108,6 +108,21 @@ it couldn't run. Copy the new `kit.ps1` into
   `Button` (`w._type`), keeps the name asked for in `w._intrinsic`, and its calls are recorded on
   `Button`, so the mixin's methods are `Kit.allowMethods` entries on the base type
   (`["Button:SetupMenu"]`). A consumer adds its own: `WoW.INTRINSIC.MyIntrinsic = "Frame"`.
+- **`WoW.templates`** builds what a template given to `CreateFrame` adds. The kit has the
+  secure templates, `UIPanelScrollFrameTemplate`'s scroll bar, `ActionButtonSpellAlertTemplate`
+  (hidden, its `ProcLoop` and `ProcStartAnim` animation groups and three textures), and
+  Blizzard_AuraContainer's `CustomAuraContainerTemplate` and `CustomAuraButtonTemplate`.
+  - **What the aura templates have:** the mixin methods an addon calls (`SetUnit`, `SetEnabled`,
+    `AddAuraSlot`, `GetAuraSlotFrame`, `IsAuraSlotEnabled`, `SetAuraSlotEnabled`,
+    `SetAuraSlotCandidateFilters` and `UpdateAllAuras`; `SetApplicationBar` and `GetIcon` on a
+    slot frame), with Blizzard's argument checks.
+  - **What a test reads:** `c._unit`, `c._enabled`, `c._refreshes` (the engine's own refreshes
+    included), `c._slots[key]` (`filter`, `candidateFilters`, `enabled`, `frame`) and
+    `f._applicationBar`.
+  - **What they don't do:** match or show auras. Their methods are set on the frame, so they
+    aren't widget calls (`w._log`, `Kit.checkMethods`).
+
+  A consumer's own `WoW.templates.<Name>` replaces the kit's.
 
 ## A new client build
 
