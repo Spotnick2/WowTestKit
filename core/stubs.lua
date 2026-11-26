@@ -1510,18 +1510,50 @@ end
 -- not looked for in the build's lists by Kit.checkMethods. Only the methods a
 -- consumer calls (GlassActionBars #115). No aura is matched or shown here: a
 -- test reads what the addon asked for.
---   container: c._unit, c._enabled (false until SetEnabled(true)),
+--   container: c._unit ("none" at first), c._enabled (true at first),
 --     c._refreshes (UpdateAllAuras requests, the engine's own included),
 --     c._slots[key] = { filter, candidateFilters (a copy), enabled, frame }.
---   slot frame: f._applicationBar = { bar, options (a copy) }.
--- Not modelled: the access restrictions applied after initializeFrame, sort
--- options' validation, the bar's secret aspect, SetIcon (GetIcon returns nil,
--- as before any SetIcon), aura groups and item enchantments.
+--   slot frame: f._applicationBar = { bar, options (a copy) }, f._icon.
+-- Not modelled: the forbidden-object checks and the access restrictions
+-- applied after initializeFrame, sort options' validation, the bar's
+-- interpolation option and secret aspect, the display update, aura groups and
+-- item enchantments.
 local function deepcopy(v)
     if type(v) ~= "table" then return v end
     local c = {}
     for k, x in pairs(v) do c[k] = deepcopy(x) end
     return c
+end
+-- CopyAndValidateInboundTable (Blizzard_CustomAuraContainer.lua:228): nil is
+-- an empty table, anything else is merged with MergeTable's pairs(), so a
+-- non-table fails there ("bad argument #1 to 'pairs'").
+local function inboundCopy(t)
+    local merged = {}
+    if t ~= nil then
+        for k, v in pairs(deepcopy(t)) do merged[k] = v end
+    end
+    return merged
+end
+-- AuraContainerUtil.ValidateInboundScriptObject and RequireObjectType
+-- (Blizzard_AuraContainerUtil.lua:310, :353), in their order: not explicitly
+-- protected, a descendant of the slot frame (RegionUtil.IsDescendantOf, the
+-- frame itself not allowed), then the type. The kit's own accessors, not the
+-- object's methods: those would log calls the addon didn't make.
+local function checkInbound(object, owner, requiredType)
+    if object._protected == true then
+        error(string.format("bad object '%s' in function call (must not be an explicitly protected object)",
+                            Methods.GetDebugName(object)), 3)
+    end
+    local parent = Methods.GetParent(object)
+    while parent ~= nil and parent ~= owner do parent = Methods.GetParent(parent) end
+    if parent == nil then
+        error(string.format("bad object '%s' in function call (must be the owner or a direct or indirect descendant of owner)",
+                            Methods.GetDebugName(object)), 3)
+    end
+    if not Methods.IsObjectType(object, requiredType) then
+        error(string.format("bad object '%s' in function call (expected object type '%s', got '%s')",
+                            Methods.GetDebugName(object), requiredType, Methods.GetObjectType(object)), 3)
+    end
 end
 -- AuraUtil.AuraFilters and IsValidFilterString (Blizzard_FrameXMLUtil/
 -- AuraUtil.lua:270, :298): components split on "|" and " ", each one of
@@ -1570,7 +1602,8 @@ local function requiredSlot(c, key)
     return slot
 end
 WoW.templates.CustomAuraContainerTemplate = function(c)
-    c._slots, c._refreshes, c._enabled = {}, 0, false
+    -- The AuraContainer intrinsic's KeyValues (Blizzard_AuraContainer.xml:7-8).
+    c._slots, c._refreshes, c._enabled, c._unit = {}, 0, true, "none"
     -- ManagedAuraContainerSharedMixin:UpdateAllAuras (Blizzard_ManagedAuraContainer.lua:63).
     rawset(c, "UpdateAllAuras", function(self) self._refreshes = self._refreshes + 1 end)
     -- AuraContainerSharedMixin:SetUnit / SetEnabled (Blizzard_AuraContainer.lua:28, :40):
@@ -1591,7 +1624,7 @@ WoW.templates.CustomAuraContainerTemplate = function(c)
         assert(type(key) == "string" and key ~= "", "slotKey must be a non-empty string.")
         checkFilterString(filter)
         if self._slots[key] ~= nil then error(string.format("aura slot '%s' already exists with this key.", key), 2) end
-        options = deepcopy(options) or {}
+        options = inboundCopy(options)
         if options.templateNames ~= nil then
             assert(type(options.templateNames) == "table", "templateNames must be a table or nil.")
             for _, t in ipairs(options.templateNames) do
@@ -1622,24 +1655,40 @@ WoW.templates.CustomAuraContainerTemplate = function(c)
     end)
     rawset(c, "SetAuraSlotCandidateFilters", function(self, key, cf)
         local slot = requiredSlot(self, key)
-        cf = deepcopy(cf) or {}
+        cf = inboundCopy(cf)
         checkCandidateFilters(cf)
         slot.candidateFilters = cf
         self:UpdateAllAuras()
     end)
 end
 WoW.templates.CustomAuraButtonTemplate = function(f)
-    -- CustomAuraButtonSharedMixin:SetApplicationBar (Blizzard_CustomAuraButton.lua:68),
-    -- its object check from AuraContainerUtil.RequireObjectType (Blizzard_AuraContainerUtil.lua:353).
+    -- CustomAuraButtonSharedMixin:SetApplicationBar (Blizzard_CustomAuraButton.lua:68).
+    -- The options are a CustomAuraButtonApplicationBarOptions
+    -- (AuraContainerUtilDocumentation.lua:241): maxApplications a number,
+    -- minApplications a number defaulting to 0. C_AuraContainerUtil checks
+    -- them; its message is unmeasured, so this one is the kit's.
     rawset(f, "SetApplicationBar", function(self, bar, options)
-        -- The kit's own checks, not the bar's methods: they'd log calls the addon didn't make.
-        if not Methods.IsObjectType(bar, "StatusBar") then
-            error(string.format("bad object '%s' in function call (expected object type 'StatusBar', got '%s')",
-                                Methods.GetDebugName(bar), Methods.GetObjectType(bar)), 2)
+        checkInbound(bar, self, "StatusBar")
+        options = deepcopy(options) or {}
+        if type(options) ~= "table" then
+            error("SetApplicationBar: options must be a table, got " .. type(options) .. " (WowTestKit's message)", 2)
         end
-        self._applicationBar = { bar = bar, options = deepcopy(options) or {} }
+        if options.minApplications == nil then options.minApplications = 0 end
+        for _, k in ipairs({ "maxApplications", "minApplications" }) do
+            if type(options[k]) ~= "number" then
+                error(string.format("SetApplicationBar: options.%s must be a number, got %s (WowTestKit's message)",
+                                    k, type(options[k])), 2)
+            end
+        end
+        self._applicationBar = { bar = bar, options = options }
     end)
-    rawset(f, "GetIcon", function(self) return nil end)
+    -- SetIcon / GetIcon (Blizzard_CustomAuraButton.lua:243, :239): a Texture
+    -- under the slot frame; GetIcon returns it, nil before any SetIcon.
+    rawset(f, "SetIcon", function(self, texture)
+        checkInbound(texture, self, "Texture")
+        self._icon = texture
+    end)
+    rawset(f, "GetIcon", function(self) return self._icon end)
 end
 
 -- ActionButtonSpellAlertTemplate (Blizzard_ActionBar/Shared/ActionButtonSpellAlerts.xml:4):

@@ -114,11 +114,12 @@ it couldn't run. Copy the new `kit.ps1` into
   Blizzard_AuraContainer's `CustomAuraContainerTemplate` and `CustomAuraButtonTemplate`.
   - **What the aura templates have:** the mixin methods an addon calls (`SetUnit`, `SetEnabled`,
     `AddAuraSlot`, `GetAuraSlotFrame`, `IsAuraSlotEnabled`, `SetAuraSlotEnabled`,
-    `SetAuraSlotCandidateFilters` and `UpdateAllAuras`; `SetApplicationBar` and `GetIcon` on a
-    slot frame), with Blizzard's argument checks.
-  - **What a test reads:** `c._unit`, `c._enabled`, `c._refreshes` (the engine's own refreshes
-    included), `c._slots[key]` (`filter`, `candidateFilters`, `enabled`, `frame`) and
-    `f._applicationBar`.
+    `SetAuraSlotCandidateFilters` and `UpdateAllAuras`; `SetApplicationBar`, `SetIcon` and
+    `GetIcon` on a slot frame), with Blizzard's argument checks. A bar or icon must be under the
+    slot frame and not explicitly protected, and a bar's options need `maxApplications`.
+  - **What a test reads:** `c._unit` (`"none"` at first), `c._enabled` (`true` at first),
+    `c._refreshes` (the engine's own refreshes included), `c._slots[key]` (`filter`,
+    `candidateFilters`, `enabled`, `frame`), `f._applicationBar` and `f._icon`.
   - **What they don't do:** match or show auras. Their methods are set on the frame, so they
     aren't widget calls (`w._log`, `Kit.checkMethods`).
 
