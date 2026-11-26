@@ -247,7 +247,8 @@ function Compare-WowTestKit {
         return 2
     }
     # $ours: tests/kit.pin holds the old pin this run wrote, not yet put back.
-    $newBytes, $oldBytes, $madeBackup, $logDir, $ours, $code = $null, $null, $false, $null, $false, $null
+    # $edited: the switch back found the pin edited.
+    $newBytes, $oldBytes, $madeBackup, $logDir, $ours, $edited, $code = $null, $null, $false, $null, $false, $false, $null
     $b64 = { param($b) if ($b -is [byte[]]) { [Convert]::ToBase64String($b) } }
     # The exit code is decided after the cleanup below, which can find an edit.
     try { $code = . {
@@ -333,10 +334,13 @@ function Compare-WowTestKit {
                 $ours = $true
                 $oldSide = & $runSide "old"
             } finally {
-                # $ours stays set only if the switch back fails.
-                if ($ours) { $null = Switch-WowTestKitPin $pinPath $oldBytes $newBytes; $ours = $false }
+                # $ours stays set only if the switch back fails. A refused one
+                # is an edit, even when the pin now holds the startup bytes
+                # again (a git restore): the old run may have read them.
+                if ($ours) { $edited = -not (Switch-WowTestKitPin $pinPath $oldBytes $newBytes); $ours = $false }
             }
-            if ((& $bytesOf $pinPath) -cne (& $b64 $newBytes)) { return 2 }
+            # A later edit is the check after the new run's, or the cleanup's.
+            if ($edited) { return 2 }
             $newSide = & $runSide "new"
             if ((& $bytesOf $pinPath) -cne (& $b64 $newBytes)) { return 2 }
         } finally { $env:WOWTESTKIT = $savedKit }
@@ -414,12 +418,12 @@ function Compare-WowTestKit {
             Remove-Item -LiteralPath $lockPath   # the pin was never changed
         } elseif ($ours -and $now -ceq (& $b64 $oldBytes)) {
             Write-Host "tests\kit.pin could not be put back: move $backup over it, then delete $lockPath" -ForegroundColor Red
-        } elseif ($now -ceq (& $b64 $newBytes)) {
+        } elseif (-not $edited -and $now -ceq (& $b64 $newBytes)) {
             Remove-Item -LiteralPath $backup
             Remove-Item -LiteralPath $lockPath
         } else {
-            # Neither pin: someone else's edit, kept. The pin as it was goes to
-            # this comparison's logs, so nothing is lost.
+            # Someone else's edit (or a restore it refused), kept. The pin as it
+            # was goes to this comparison's logs, so nothing is lost.
             if (-not $logDir) { $logDir = New-WowTestKitLogDir }
             $was = Join-Path $logDir "kit.pin.before"
             [IO.File]::WriteAllBytes($was, $newBytes)

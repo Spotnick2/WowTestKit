@@ -90,6 +90,7 @@ try {
     $k10 = New-FixtureKit "3" @("frame B", "frame A")      # ...swapped
     $k11 = New-FixtureKit "3" "frame A" -Edit "sha=edited meanwhile`n"   # its snapshot edits the pin
     $k12 = New-FixtureKit "3" "frame A" -Edit "sha=$k1`n# the pin`nbuild=70532`napi=2`n"   # ...to -Compare <k1>'s old pin
+    $k13 = New-FixtureKit "3" "frame A" -Edit "# the pin`r`nsha=$k1 # pinned kit`r`nbuild=70532`r`napi=2`r`n"   # ...back to Set-Pin $k1
 
     Copy-Item -LiteralPath (Join-Path $kitRepo "bootstrap/kit.ps1") -Destination (Join-Path $repo "tests/kit.ps1")
     $files = @{
@@ -127,7 +128,7 @@ try {
             'print((lock and "lock" or "no lock") .. ", " .. (backup and "backup" or "no backup"))'
             'if lock then lock:close() end if backup then backup:close() end'
             # An edit to the pin while the comparison runs (the kit's edit.txt).
-            'local e = io.open(os.getenv("WOWTESTKIT") .. "/edit.txt")'
+            'local e = io.open(os.getenv("WOWTESTKIT") .. "/edit.txt", "rb")'
             'if e then local t = e:read("*a") e:close() local p = assert(io.open("tests/kit.pin", "wb")) p:write(t) p:close() end')
     }
     foreach ($k in $files.Keys) { Set-Content -LiteralPath (Join-Path $repo $k) -Value $files[$k] }
@@ -234,6 +235,8 @@ try {
         @{ What = "during the old run"; Pin = $k1; Old = $k11; Edit = $edited; Ran = @("-- old pin"); NotRan = @("-- new pin", "result lines") }
         @{ What = "during the new run"; Pin = $k11; Old = $k1; Edit = $edited; Ran = @("-- old pin", "-- new pin"); NotRan = @("result lines") }
         @{ What = "to the old pin, during the new run"; Pin = $k12; Old = $k1; Edit = $kitOld; Ran = @("-- new pin"); NotRan = @("result lines") }
+        # A git restore of the startup pin during the old run: the old run may have read it.
+        @{ What = "back to the startup pin, during the old run"; Pin = $k1; Old = $k13; Edit = "# the pin`r`nsha=$k1 # pinned kit`r`nbuild=70532`r`napi=2`r`n"; Ran = @("-- old pin"); NotRan = @("-- new pin", "result lines") }
         @{ What = "before the old pin goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-edit"; Edit = $edited; Ran = @(); NotRan = @("-- old pin") }
         @{ What = "to the old pin, before it goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-old"; Edit = $headPin; Ran = @(); NotRan = @("-- old pin") }
         @{ What = "after the last run"; Pin = $k1; Old = $k4; Mode = "print"; Edit = $edited; Ran = @("-- new pin", "result lines: 4 of 4 test files identical"); NotRan = @() }
