@@ -90,8 +90,8 @@ function Get-WowTestKit {
 # last one. The result is the file's last non-blank line, as the runner reads
 # it, when that is a result line ("<name>: N passed, M failed", a SKIPPED
 # line). Otherwise, for a file Lua stopped with an error (its last line is the
-# traceback's), it is "error: <message>", from Lua's own "lua: " line: a test
-# may print one of its own. Returns @{ Files = ordered
+# traceback's), it is "error: <message>", from Lua's own "lua: " line, not
+# one a test printed. Returns @{ Files = ordered
 # name -> line; Summary = line; Ran = the file count the summary gives }.
 function Get-WowTestKitResults {
     param([string[]]$Lines)
@@ -106,11 +106,13 @@ function Get-WowTestKitResults {
         if (-not $file) { return }
         $last = $body | Where-Object { $_.Trim() } | Select-Object -Last 1
         $last = if ($last) { $last.Trim() }
-        # A runtime error is the last "lua: " line before Lua's "stack traceback:"
-        # (stderr, so ahead of the file's buffered prints); a load error has none.
-        $tb = $body.FindIndex([Predicate[string]] { param($l) $l -cmatch '^stack traceback:' })
-        $e = $body | Select-Object -First $(if ($tb -ge 0) { $tb } else { $body.Count }) |
-            Where-Object { $_ -cmatch $errorRx } | Select-Object -Last 1
+        # Lua's own error line starts with the interpreter's path, as the runner
+        # passes it (C:\...\lua.exe, /usr/bin/lua5.1): a test's own "lua: ..."
+        # print doesn't, and stdout and stderr arrive in no fixed order. Failing
+        # that (a bare "lua"), the last "lua: " line.
+        $errors = @($body | Where-Object { $_ -cmatch $errorRx })
+        $e = $errors | Where-Object { $_ -cmatch '^(.*[\\/]lua|lua5\.1|lua\.exe)' } | Select-Object -Last 1
+        if (-not $e) { $e = $errors | Select-Object -Last 1 }
         $files[$file] = if ($last -cmatch $resultRx) { $last }
             elseif ($e) { "error: " + ($e -creplace $errorRx, '$4').Trim() }
             elseif ($last) { $last }
