@@ -31,6 +31,10 @@ jobs:
         shell: pwsh
         run: ./tests/runner_contract.ps1
 
+      - name: kit.ps1 -Compare across two pins
+        shell: pwsh
+        run: ./tests/compare_contract.ps1
+
       - name: Smoke test each client build
         run: |
           for dir in data/forever-*; do

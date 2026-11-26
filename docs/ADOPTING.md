@@ -136,6 +136,10 @@ Run the tests and the snapshot again on the branch, and compare with the baselin
 - **Run against the pin, not the working copy**: `tests\run.ps1` without `-KitDev`, so the
   pinned commit is fetched from GitHub; then CI.
 
+Every later pin bump makes the same comparison with the kit's own tool: `pwsh tests/kit.ps1
+-Compare HEAD -Snapshot <the snapshot script>` (README, "Comparing two pins") prints only what
+differs.
+
 Put the comparison in the PR: each changed count with its reason, "snapshot identical", the
 mutations that went red.
 
