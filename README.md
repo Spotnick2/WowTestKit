@@ -76,8 +76,11 @@ section 1) is identical. A commit of the repo gives its whole `tests/kit.pin` (s
 api), so use one when the bump changes the build: a kit sha replaces `sha=` only. The old pin is
 written into `tests/kit.pin` for its run and the file is put back byte for byte;
 `tests/kit.pin.compare-backup` holds it meanwhile, and exists only once it is complete.
-An edit to `tests/kit.pin` made while it runs is kept: the comparison stops (exit 2) and saves
-the pin as it was in its log folder, which is its own (named by the time and the process).
+An edit to `tests/kit.pin` made while it runs is kept, even one back to the old pin's bytes: the
+comparison stops (exit 2) and saves the pin as it was in its log folder, which is its own (named
+by the time and the process). Each swap checks and writes through one handle no other writer can
+open; off Windows that lock is advisory, so only a writer that ignores it and writes in place
+during the swap can still be overwritten.
 `tests/kit.pin.compare-lock`, created atomically, naming the process that made it, and kept until both
 runs are done, makes a second `-Compare` refuse to start. It says whether the first is still
 running (wait for it) or stopped, and then what to do with what it left. For a lock that names
