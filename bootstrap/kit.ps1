@@ -136,20 +136,20 @@ function Get-WowTestKitResults {
     return @{ Files = $files; Summary = $summary; Ran = $ran }
 }
 
-# -Compare's lock: $Content written whole under another name, then moved to
-# $Path, a move that fails if $Path exists (MoveFileEx without replace on
-# Windows, link() on Linux). So the lock never exists empty or half written,
-# and only one -Compare makes it. $false: it exists already.
+# -Compare's lock, holding $Content: created with CreateNew, atomic on every
+# system (O_EXCL off Windows), so only one -Compare makes it. $false: it
+# exists already. Not shared until written (on Windows, a reader meanwhile
+# can't open it); a reader that sees it still empty finds no process named,
+# and asks the user to check rather than calling it stopped.
 function New-WowTestKitLock {
     param([string]$Path, [byte[]]$Content)
-    $tmp = "$Path.$PID.new"
-    [IO.File]::WriteAllBytes($tmp, $Content)
-    try { [IO.File]::Move($tmp, $Path); return $true }
+    try { $s = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None) }
     catch [IO.IOException] {
-        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $Path) { return $false }
         throw
     }
+    try { $s.Write($Content, 0, $Content.Length) } finally { $s.Dispose() }
+    return $true
 }
 
 function Compare-WowTestKit {

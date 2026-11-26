@@ -63,8 +63,6 @@ function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [str
     foreach ($s in $Lacks) { if ($out.Contains($s)) { throw "${what}: '$s' should not be in:`n$out" } }
     $after = [IO.File]::ReadAllBytes($pin)
     if ([Convert]::ToBase64String($after) -cne [Convert]::ToBase64String($before)) { throw "${what}: tests/kit.pin changed" }
-    $strays = @(Get-ChildItem -LiteralPath (Split-Path -Parent $pin) | Where-Object { $_.Name -clike "kit.pin.compare-lock.*" })
-    if ($strays) { throw "${what}: left $($strays.Name -join ', ')" }
     if (-not $Leftover) {
         foreach ($f in "$pin.compare-backup", "$pin.compare-lock", "$pin.compare-backup.partial") {
             if (Test-Path -LiteralPath $f) { throw "${what}: $f was left behind" }
@@ -237,17 +235,14 @@ try {
             if ($null -ne $f.Value) { Remove-Item -LiteralPath $f.Key }
         }
     }
-    # The lock is made whole or not at all: kit.ps1's own New-WowTestKitLock
-    # creates it with its content, refuses an existing one without touching it,
-    # and leaves no temporary file either way.
+    # kit.ps1's own New-WowTestKitLock creates the lock with its content and
+    # refuses an existing one without touching it.
     . (Join-Path $repo "tests/kit.ps1")
     $content = [Text.Encoding]::ASCII.GetBytes("pid=1 start=2`n")
     $other = [Text.Encoding]::ASCII.GetBytes("pid=3 start=4`n")
     if ((New-WowTestKitLock $lockFile $content) -ne $true) { throw "New-WowTestKitLock didn't make a new lock" }
     if ((New-WowTestKitLock $lockFile $other) -ne $false) { throw "New-WowTestKitLock took an existing lock" }
     if ([IO.File]::ReadAllText($lockFile) -cne "pid=1 start=2`n") { throw "New-WowTestKitLock changed an existing lock" }
-    $strays = @(Get-ChildItem -LiteralPath (Split-Path -Parent $lockFile) | Where-Object { $_.Name -clike "kit.pin.compare-lock.*" })
-    if ($strays) { throw "New-WowTestKitLock left $($strays.Name -join ', ')" }
     Remove-Item -LiteralPath $lockFile
 
     Write-Host "kit.ps1 -Compare: both forms, the snapshot, the refusals; tests/kit.pin put back each time."
