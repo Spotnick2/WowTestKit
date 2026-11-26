@@ -19,14 +19,20 @@ foreach ($k in 'LOCALAPPDATA', 'WOWTESTKIT', 'GIT_ALLOW_PROTOCOL', 'TEMP', 'TMP'
 }
 $git = @('-c', 'core.autocrlf=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false')
 
-function New-FixtureKit([string]$Count, [string]$Snap, [string]$Extra = "", [switch]$NoData) {
+# -Patch: a change to the kit runner's text, as @(from, to), for an output the parser can't read.
+function New-FixtureKit([string]$Count, [string[]]$Snap, [string]$Extra = "", [switch]$NoData, [string[]]$Patch) {
     $dir = Join-Path $root ("kit-" + [guid]::NewGuid())
     New-Item -ItemType Directory -Path (Join-Path $dir "scripts") | Out-Null
     if (-not $NoData) {
         New-Item -ItemType Directory -Path (Join-Path $dir "data/forever-70532") | Out-Null
         Set-Content -LiteralPath (Join-Path $dir "data/forever-70532/events.txt") -Value "ADDON_LOADED"
     }
-    Copy-Item -LiteralPath (Join-Path $kitRepo "scripts/run.ps1") -Destination (Join-Path $dir "scripts/run.ps1")
+    $runner = [IO.File]::ReadAllText((Join-Path $kitRepo "scripts/run.ps1"))
+    if ($Patch) {
+        if (!$runner.Contains($Patch[0])) { throw "The runner has no '$($Patch[0])' to patch" }
+        $runner = $runner.Replace($Patch[0], $Patch[1])
+    }
+    [IO.File]::WriteAllText((Join-Path $dir "scripts/run.ps1"), $runner)
     Set-Content -LiteralPath (Join-Path $dir "count.txt") -Value $Count
     Set-Content -LiteralPath (Join-Path $dir "snap.txt") -Value $Snap
     if ($Extra) { Set-Content -LiteralPath (Join-Path $dir "extra.txt") -Value $Extra }
@@ -44,7 +50,9 @@ function Set-Pin([string]$Sha) {
     [IO.File]::WriteAllText($pin, "# the pin`r`nsha=$Sha # pinned kit`r`nbuild=70532`r`napi=2`r`n")
 }
 
-function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [string[]]$Lacks = @()) {
+# Every run leaves no backup (the lock) behind, refusals included, except -KeepsBackup:
+# one that found a backup already there and must leave it as it was.
+function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [string[]]$Lacks = @(), [switch]$KeepsBackup) {
     $before = [IO.File]::ReadAllBytes($pin)
     Push-Location $repo
     try { $out = (& $pwsh -NoProfile -File (Join-Path $repo "tests/kit.ps1") @CompareArgs 2>&1) -join "`n"; $got = $LASTEXITCODE }
@@ -55,7 +63,7 @@ function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [str
     foreach ($s in $Lacks) { if ($out.Contains($s)) { throw "${what}: '$s' should not be in:`n$out" } }
     $after = [IO.File]::ReadAllBytes($pin)
     if ([Convert]::ToBase64String($after) -cne [Convert]::ToBase64String($before)) { throw "${what}: tests/kit.pin changed" }
-    if ((Test-Path -LiteralPath "$pin.compare-backup") -and $Code -ne 2) { throw "${what}: the backup was left behind" }
+    if ((Test-Path -LiteralPath "$pin.compare-backup") -and -not $KeepsBackup) { throw "${what}: the backup was left behind" }
     return $out
 }
 
@@ -70,6 +78,10 @@ try {
     $k4 = New-FixtureKit "3" "frame A" "nothing else" -NoData   # nothing differs; no data for the pin's build
     $k5 = New-FixtureKit "crash" "frame A"                 # test_a stops with an error
     $k6 = New-FixtureKit "crash" "frame A" "same crash"    # the same failing run
+    $k7 = New-FixtureKit "3" "frame A" -Patch @('Write-Host "-- $($_.Name) "', 'Write-Host "== $($_.Name) "')  # no header read
+    $k8 = New-FixtureKit "3" "frame A" -Patch @('"All $ran test files passed', '"Everything passed')         # no summary read
+    $k9 = New-FixtureKit "3" @("frame A", "frame B")       # two snapshot lines...
+    $k10 = New-FixtureKit "3" @("frame B", "frame A")      # ...swapped
 
     Copy-Item -LiteralPath (Join-Path $kitRepo "bootstrap/kit.ps1") -Destination (Join-Path $repo "tests/kit.ps1")
     $files = @{
@@ -91,9 +103,18 @@ try {
             'print("drew " .. f:read("*l")) f:close()'
             'print("test_b: 2 passed, 0 failed")')
         'tests/test_c.lua' = @('print("SKIPPED: optional")')
+        # A name with a space, as the runner's tests/test_*.lua finds it.
+        'tests/test_d d.lua' = @(
+            'local f = assert(io.open(os.getenv("WOWTESTKIT") .. "/count.txt"))'
+            'local n = f:read("*l") f:close()'
+            'if n == "crash" then n = "3" end'
+            'print("test_d d: " .. n .. " passed, 0 failed")')
+        # Each line of snap.txt, then whether the backup (the lock) is there while it runs.
         'snapshot.lua' = @(
-            'local f = assert(io.open(os.getenv("WOWTESTKIT") .. "/snap.txt"))'
-            'print("## named frames") print(f:read("*l")) f:close()')
+            'print("## named frames")'
+            'for l in io.lines(os.getenv("WOWTESTKIT") .. "/snap.txt") do print(l) end'
+            'local lock = io.open("tests/kit.pin.compare-backup")'
+            'print(lock and "lock held" or "no lock") if lock then lock:close() end')
     }
     foreach ($k in $files.Keys) { Set-Content -LiteralPath (Join-Path $repo $k) -Value $files[$k] }
     Set-Pin $k1
@@ -102,44 +123,64 @@ try {
     git -C $repo @git commit --quiet -m "pin k1"
     if ($LASTEXITCODE) { throw "Cannot commit the consumer" }
 
-    # A bump to k2, compared with the pin HEAD committed: test_a's line only.
+    # A bump to k2, compared with the pin HEAD committed: test_a's and test_d d's lines only.
     Set-Pin $k2
     $out = Invoke-Compare @('-Compare', 'HEAD', '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 1 @(
         "old pin: sha $($k1.Substring(0, 7)), build 70532, api 2 (HEAD:tests/kit.pin)",
         "new pin: sha $($k2.Substring(0, 7))",
         "test_a.lua", "  old: test_a: 3 passed, 0 failed", "  new: test_a: 4 passed, 0 failed",
-        "result lines: 2 of 3 test files identical", "load snapshot: identical (2 lines, exit 0)"
-    ) @("test_b.lua", "test_c.lua", "summary")
+        "test_d d.lua", "  old: test_d d: 3 passed, 0 failed", "  new: test_d d: 4 passed, 0 failed",
+        "result lines: 2 of 4 test files identical", "load snapshot: identical (3 lines, exit 0)"
+    ) @("test_b.lua", "test_c.lua", "summary", "FAILED")
+    # The lock was held through both runs: each snapshot saw it.
+    $logs = [regex]::Match($out, 'full outputs: (.+)').Groups[1].Value.Trim()
+    foreach ($side in 'old', 'new') {
+        if ((Get-Content -LiteralPath (Join-Path $logs "$side-snapshot.txt")) -notcontains "lock held") {
+            throw "The $side run didn't see tests/kit.pin.compare-backup"
+        }
+    }
 
     # The issue's form: the old kit sha. Nothing differs.
     Set-Pin $k1
     Invoke-Compare @('-Compare', $k4, '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 0 @(
         "old pin: sha $($k4.Substring(0, 7)), build 70532, api 2 (tests/kit.pin with sha=$($k4.Substring(0, 7)))",
-        "result lines: 3 of 3 test files identical", "load snapshot: identical",
+        "result lines: 4 of 4 test files identical", "load snapshot: identical",
         "the kit at this sha has no data for build 70532"
     ) @("test_a.lua") | Out-Null
 
     # The hint is about the old pin only.
     Set-Pin $k4
-    Invoke-Compare @('-Compare', $k1, '-Lua', $Lua) 0 @("result lines: 3 of 3 test files identical") @("has no data for build") | Out-Null
+    Invoke-Compare @('-Compare', $k1, '-Lua', $Lua) 0 @("result lines: 4 of 4 test files identical") @("has no data for build") | Out-Null
     Set-Pin $k1
 
     # The snapshot differs; the result lines don't.
     Invoke-Compare @('-Compare', $k3, '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 1 @(
-        "result lines: 3 of 3 test files identical", "load snapshot: DIFFERS", "  old: frame B", "  new: frame A"
-    ) @("has no data for build") | Out-Null
+        "result lines: 4 of 4 test files identical", "load snapshot: DIFFERS", "  from line 2:",
+        "  old: frame B", "  new: frame A"
+    ) @("has no data for build", "lock held") | Out-Null
+
+    # Lines that only change order: shown in order, from the first that differs.
+    Set-Pin $k10
+    Invoke-Compare @('-Compare', $k9, '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 1 @(
+        "load snapshot: DIFFERS", "  from line 2:`n  old: frame A`n  old: frame B`n  new: frame B`n  new: frame A"
+    ) | Out-Null
+    Set-Pin $k1
+
+    # A run whose results can't all be read is not "identical".
+    Invoke-Compare @('-Compare', $k7, '-Lua', $Lua) 1 @("FAILED: old tests (read 0 of the 4 files' results)") | Out-Null
+    Invoke-Compare @('-Compare', $k8, '-Lua', $Lua) 1 @("FAILED: old tests (no runner summary in the output)") | Out-Null
 
     # A test file Lua stopped: its error, not its traceback's last line; the summary differs.
     Invoke-Compare @('-Compare', $k5, '-Lua', $Lua) 1 @(
         "test_a.lua", "  old: error: ", "test_a.lua:3: crash", "  new: test_a: 3 passed, 0 failed",
-        "summary", "  old: 1 of 3 test file(s) FAILED (exit 1)", "  new: All 3 test files passed (1 skipped). (exit 0)",
-        "result lines: 2 of 3 test files identical"
+        "summary", "  old: 1 of 4 test file(s) FAILED (exit 1)", "  new: All 4 test files passed (1 skipped). (exit 0)",
+        "result lines: 3 of 4 test files identical"
     ) @("[C]: ?") | Out-Null
 
     # Both runs fail the same way: identical, and still not a pass.
     Set-Pin $k6
     Invoke-Compare @('-Compare', $k5, '-Lua', $Lua) 1 @(
-        "result lines: 3 of 3 test files identical", "FAILED: old tests (exit 1), new tests (exit 1)."
+        "result lines: 4 of 4 test files identical", "FAILED: old tests (exit 1), new tests (exit 1)."
     ) | Out-Null
     Set-Pin $k1
 
@@ -155,7 +196,7 @@ try {
     Invoke-Compare @('-Compare', 'no-such-ref', '-Lua', $Lua) 2 @("is neither") | Out-Null
     Invoke-Compare @() 2 @("usage:") | Out-Null
     [IO.File]::WriteAllText("$pin.compare-backup", "sha=$k2`n")
-    Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @("an earlier -Compare stopped") | Out-Null
+    Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @("another -Compare is running, or one stopped") -KeepsBackup | Out-Null
     if ([IO.File]::ReadAllText("$pin.compare-backup") -ne "sha=$k2`n") { throw "The leftover backup was touched" }
 
     Write-Host "kit.ps1 -Compare: both forms, the snapshot, the refusals; tests/kit.pin put back each time."

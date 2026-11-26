@@ -23,8 +23,10 @@
     this repo> takes that commit's whole tests/kit.pin (sha, build, api); a
     40-hex sha that is no commit here replaces only sha=. The old pin is
     written into tests/kit.pin for its run and the file is put back byte for
-    byte after it; tests/kit.pin.compare-backup holds it meanwhile, and a
-    -Compare refuses to start while that file exists. Each side's full output
+    byte after it. tests/kit.pin.compare-backup holds it, and is the lock:
+    created atomically before the pin is read and removed after both runs, so
+    a second -Compare refuses to start while one runs (or after one stopped
+    before it could clean up). Each side's full output
     is kept in a WowTestKit-compare-<time> folder in %TEMP%. Exit 0: nothing
     differs and every run passed; 1: something differs, or a run failed (its
     identical lines prove nothing); 2: the comparison could not run.
@@ -86,7 +88,8 @@ function Get-WowTestKit {
 # "-- test_x.lua " opens a file's output, and the runner's summary closes the
 # last one. The result is the file's last non-blank line, as the runner reads
 # it, or "error: <message>" for a file Lua stopped with an error (its last
-# line is the traceback's). Returns @{ Files = ordered name -> line; Summary = line }.
+# line is the traceback's). Returns @{ Files = ordered name -> line;
+# Summary = line; Ran = the file count the summary gives }.
 function Get-WowTestKitResults {
     param([string[]]$Lines)
     $errorRx = '^(.*[\\/])?lua(5\.1)?(\.exe)?: (.+)$'
@@ -103,8 +106,9 @@ function Get-WowTestKitResults {
     }
     foreach ($line in $Lines) {
         # A file that printed nothing leaves the next "-- test_y.lua " on its line.
-        while ($line -cmatch '^-- (test_\S+\.lua) ?(.*)$') {
-            $next, $line = $Matches[1], $Matches[2]   # before $close's own -cmatch resets $Matches
+        # A name may hold spaces ("test_a b.lua"): it ends at the first ".lua ".
+        while ($line -cmatch '^-- (test_.*?\.lua)(?: (.*))?$') {
+            $next, $line = $Matches[1], "$($Matches[2])"   # before $close's own -cmatch resets $Matches
             . $close
             $file = $next
             $body.Clear()
@@ -113,7 +117,9 @@ function Get-WowTestKitResults {
         if ($file) { $body.Add($line) }
     }
     . $close
-    return @{ Files = $files; Summary = $summary }
+    # How many files the runner says it ran, to check none was missed.
+    $ran = if ($summary -cmatch '^All ([0-9]+) test files' -or $summary -cmatch '^[0-9]+ of ([0-9]+) test file') { [int]$Matches[1] }
+    return @{ Files = $files; Summary = $summary; Ran = $ran }
 }
 
 function Compare-WowTestKit {
@@ -128,10 +134,6 @@ function Compare-WowTestKit {
     $pinPath = Join-Path $RepoRoot "tests/kit.pin"
     $backup = "$pinPath.compare-backup"
     $runPs1 = Join-Path $RepoRoot "tests/run.ps1"
-    if (Test-Path -LiteralPath $backup) {
-        Write-Host "$backup exists: an earlier -Compare stopped before putting tests\kit.pin back. Check which pin it holds, move it back over tests\kit.pin, then run again." -ForegroundColor Red
-        return 2
-    }
     if (-not (Test-Path -LiteralPath $runPs1)) { Write-Host "no tests\run.ps1 in $RepoRoot" -ForegroundColor Red; return 2 }
     $luaExe = if ($Lua) { $Lua } else { "C:\Program Files (x86)\Lua\5.1\lua.exe" }
     if ($Snapshot) {
@@ -139,144 +141,170 @@ function Compare-WowTestKit {
         if (-not $Snapshot) { Write-Host "-Snapshot: no such file" -ForegroundColor Red; return 2 }
         if (-not (Get-Command $luaExe -ErrorAction SilentlyContinue)) { Write-Host "Lua 5.1 not found at $luaExe (pass -Lua <path>)" -ForegroundColor Red; return 2 }
     }
-
-    # The old pin: a commit of this repo gives its whole tests/kit.pin; a kit
-    # sha replaces sha= in the current one.
-    $newBytes = [IO.File]::ReadAllBytes($pinPath)
-    $newLines = @(Get-Content -LiteralPath $pinPath)
-    $oldLines, $from, $shaForm = $null, $null, $false
     if ($Compare -cmatch '^-') { Write-Host "-Compare takes a commit or a sha, not '$Compare'" -ForegroundColor Red; return 2 }
-    git -C $RepoRoot rev-parse --verify --quiet "$Compare^{commit}" *> $null
-    if ($LASTEXITCODE -eq 0) {
-        $shown = @(git -C $RepoRoot show "${Compare}:tests/kit.pin" 2>$null)
-        if ($LASTEXITCODE -eq 0) { $oldLines, $from = $shown, "${Compare}:tests/kit.pin" }
-    }
-    if ($null -eq $oldLines) {
-        if ($Compare -cnotmatch '^[0-9a-f]{40}$') {
-            Write-Host "-Compare takes a commit of this repo with a tests/kit.pin (HEAD, main, ...) or the old kit sha (40 hex): '$Compare' is neither" -ForegroundColor Red
-            return 2
-        }
-        $oldLines = @("sha=$Compare") + @($newLines | Where-Object { $_ -notmatch '^\s*sha\s*=' })
-        $from = "tests/kit.pin with sha=$($Compare.Substring(0, 7))"
-        $shaForm = $true
-    }
-    $old = ConvertFrom-WowTestKitPin $oldLines
-    $new = ConvertFrom-WowTestKitPin $newLines
-    $describe = { param($p) "sha $(if ($p.sha) { $p.sha.Substring(0, [Math]::Min(7, $p.sha.Length)) } else { '?' }), build $($p.build), api $($p.api)" }
-    Write-Host "old pin: $(& $describe $old) ($from)"
-    Write-Host "new pin: $(& $describe $new) (tests/kit.pin)"
-    if ($old.sha -ceq $new.sha -and $old.build -ceq $new.build -and $old.api -ceq $new.api) {
-        Write-Host "The two pins are the same: nothing to compare." -ForegroundColor Red
+
+    # The backup is also the lock: created atomically before the pin is read,
+    # and kept until both runs are done, so a second -Compare can neither read
+    # this one's old pin as "the current pin" nor swap the pin under its runs.
+    try {
+        $lock = [IO.File]::Open($backup, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    } catch [IO.IOException] {
+        Write-Host "$backup exists: another -Compare is running, or one stopped before it finished. It holds the pin as it was before that run: if tests\kit.pin matches it, delete it; otherwise move it back over tests\kit.pin. Then run again." -ForegroundColor Red
         return 2
     }
-
-    $pwsh = (Get-Process -Id $PID).Path
-    $logDir = Join-Path ([IO.Path]::GetTempPath()) ("WowTestKit-compare-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-    New-Item -ItemType Directory -Force $logDir | Out-Null
-    $savedKit = $env:WOWTESTKIT
-    # One side: tests/run.ps1 as the owner runs it, then the snapshot script
-    # against the same kit.
-    $runSide = {
-        param($name)
-        Write-Host "-- $name pin: tests\run.ps1" -ForegroundColor Cyan
-        $kit = Get-WowTestKit -RepoRoot $RepoRoot
-        $build = (ConvertFrom-WowTestKitPin (Get-Content -LiteralPath $pinPath)).build
-        if ($shaForm -and $name -eq 'old' -and -not (Test-Path -LiteralPath (Join-Path $kit "data/forever-$build"))) {
-            Write-Host "   the kit at this sha has no data for build ${build}: -Compare <a commit of this repo> takes that commit's build too" -ForegroundColor Yellow
-        }
-        $runArgs = @('-NoProfile', '-File', $runPs1)
-        if ($Lua) { $runArgs += '-Lua', $Lua }
-        Push-Location $RepoRoot
-        try {
-            $out = @(& $pwsh @runArgs 2>&1 | ForEach-Object { "$_" -replace "\x1b\[[0-9;?]*[A-Za-z]", '' })
-            $code = $LASTEXITCODE
-            $snap, $snapCode = $null, $null
-            if ($Snapshot) {
-                $env:WOWTESTKIT = $kit
-                $snap = @(& $luaExe $Snapshot 2>&1 | ForEach-Object { "$_" })
-                $snapCode = $LASTEXITCODE
-                $snap | Set-Content -LiteralPath (Join-Path $logDir "$name-snapshot.txt")
-            }
-        } finally { Pop-Location }
-        $out | Set-Content -LiteralPath (Join-Path $logDir "$name-tests.txt")
-        $r = Get-WowTestKitResults $out
-        Write-Host "   exit $code, $($r.Files.Count) test files: $($r.Summary)"
-        @{ Results = $r; Code = $code; Snapshot = $snap; SnapshotCode = $snapCode }
-    }
-
+    $newBytes = $null
     try {
-        [IO.File]::WriteAllBytes($backup, $newBytes)
+        $newBytes = [IO.File]::ReadAllBytes($pinPath)
+        $lock.Write($newBytes, 0, $newBytes.Length)
+        $lock.Dispose()
+        # The old pin: a commit of this repo gives its whole tests/kit.pin; a kit
+        # sha replaces sha= in the current one.
+        $newLines = @(Get-Content -LiteralPath $pinPath)
+        $oldLines, $from, $shaForm = $null, $null, $false
+        git -C $RepoRoot rev-parse --verify --quiet "$Compare^{commit}" *> $null
+        if ($LASTEXITCODE -eq 0) {
+            $shown = @(git -C $RepoRoot show "${Compare}:tests/kit.pin" 2>$null)
+            if ($LASTEXITCODE -eq 0) { $oldLines, $from = $shown, "${Compare}:tests/kit.pin" }
+        }
+        if ($null -eq $oldLines) {
+            if ($Compare -cnotmatch '^[0-9a-f]{40}$') {
+                Write-Host "-Compare takes a commit of this repo with a tests/kit.pin (HEAD, main, ...) or the old kit sha (40 hex): '$Compare' is neither" -ForegroundColor Red
+                return 2
+            }
+            $oldLines = @("sha=$Compare") + @($newLines | Where-Object { $_ -notmatch '^\s*sha\s*=' })
+            $from = "tests/kit.pin with sha=$($Compare.Substring(0, 7))"
+            $shaForm = $true
+        }
+        $old = ConvertFrom-WowTestKitPin $oldLines
+        $new = ConvertFrom-WowTestKitPin $newLines
+        $describe = { param($p) "sha $(if ($p.sha) { $p.sha.Substring(0, [Math]::Min(7, $p.sha.Length)) } else { '?' }), build $($p.build), api $($p.api)" }
+        Write-Host "old pin: $(& $describe $old) ($from)"
+        Write-Host "new pin: $(& $describe $new) (tests/kit.pin)"
+        if ($old.sha -ceq $new.sha -and $old.build -ceq $new.build -and $old.api -ceq $new.api) {
+            Write-Host "The two pins are the same: nothing to compare." -ForegroundColor Red
+            return 2
+        }
+
+        $pwsh = (Get-Process -Id $PID).Path
+        $logDir = Join-Path ([IO.Path]::GetTempPath()) ("WowTestKit-compare-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+        New-Item -ItemType Directory -Force $logDir | Out-Null
+        $savedKit = $env:WOWTESTKIT
+        # One side: tests/run.ps1 as the owner runs it, then the snapshot script
+        # against the same kit.
+        $runSide = {
+            param($name)
+            Write-Host "-- $name pin: tests\run.ps1" -ForegroundColor Cyan
+            $kit = Get-WowTestKit -RepoRoot $RepoRoot
+            $build = (ConvertFrom-WowTestKitPin (Get-Content -LiteralPath $pinPath)).build
+            if ($shaForm -and $name -eq 'old' -and -not (Test-Path -LiteralPath (Join-Path $kit "data/forever-$build"))) {
+                Write-Host "   the kit at this sha has no data for build ${build}: -Compare <a commit of this repo> takes that commit's build too" -ForegroundColor Yellow
+            }
+            $runArgs = @('-NoProfile', '-File', $runPs1)
+            if ($Lua) { $runArgs += '-Lua', $Lua }
+            Push-Location $RepoRoot
+            try {
+                $out = @(& $pwsh @runArgs 2>&1 | ForEach-Object { "$_" -replace "\x1b\[[0-9;?]*[A-Za-z]", '' })
+                $code = $LASTEXITCODE
+                $snap, $snapCode = $null, $null
+                if ($Snapshot) {
+                    $env:WOWTESTKIT = $kit
+                    $snap = @(& $luaExe $Snapshot 2>&1 | ForEach-Object { "$_" })
+                    $snapCode = $LASTEXITCODE
+                    $snap | Set-Content -LiteralPath (Join-Path $logDir "$name-snapshot.txt")
+                }
+            } finally { Pop-Location }
+            $out | Set-Content -LiteralPath (Join-Path $logDir "$name-tests.txt")
+            $r = Get-WowTestKitResults $out
+            Write-Host "   exit $code, $($r.Files.Count) test files: $($r.Summary)"
+            @{ Results = $r; Code = $code; Snapshot = $snap; SnapshotCode = $snapCode }
+        }
+
         try {
-            [IO.File]::WriteAllText($pinPath, (($oldLines -join "`n") + "`n"))
-            $oldSide = & $runSide "old"
-        } finally {
-            [IO.File]::WriteAllBytes($pinPath, $newBytes)
+            try {
+                [IO.File]::WriteAllText($pinPath, (($oldLines -join "`n") + "`n"))
+                $oldSide = & $runSide "old"
+            } finally { [IO.File]::WriteAllBytes($pinPath, $newBytes) }
             $back = [IO.File]::ReadAllBytes($pinPath)
-            if ([Convert]::ToBase64String($back) -ceq [Convert]::ToBase64String($newBytes)) {
-                Remove-Item -LiteralPath $backup
-            } else {
-                Write-Host "tests\kit.pin could not be put back: $backup holds it" -ForegroundColor Red
+            if ([Convert]::ToBase64String($back) -cne [Convert]::ToBase64String($newBytes)) { return 2 }
+            $newSide = & $runSide "new"
+        } finally { $env:WOWTESTKIT = $savedKit }
+
+        # The result lines that differ, in the old run's order.
+        $o, $n = $oldSide.Results, $newSide.Results
+        $names = @($o.Files.Keys) + @($n.Files.Keys | Where-Object { -not $o.Files.Contains($_) })
+        $differ = 0
+        Write-Host ""
+        foreach ($f in $names) {
+            $a = if ($o.Files.Contains($f)) { $o.Files[$f] } else { "(not run)" }
+            $b = if ($n.Files.Contains($f)) { $n.Files[$f] } else { "(not run)" }
+            if ($a -cne $b) {
+                $differ++
+                Write-Host $f -ForegroundColor Yellow
+                Write-Host "  old: $a"
+                Write-Host "  new: $b"
             }
         }
-        if (Test-Path -LiteralPath $backup) { return 2 }
-        $newSide = & $runSide "new"
-    } finally { $env:WOWTESTKIT = $savedKit }
-
-    # The result lines that differ, in the old run's order.
-    $o, $n = $oldSide.Results, $newSide.Results
-    $names = @($o.Files.Keys) + @($n.Files.Keys | Where-Object { -not $o.Files.Contains($_) })
-    $differ = 0
-    Write-Host ""
-    foreach ($f in $names) {
-        $a = if ($o.Files.Contains($f)) { $o.Files[$f] } else { "(not run)" }
-        $b = if ($n.Files.Contains($f)) { $n.Files[$f] } else { "(not run)" }
-        if ($a -cne $b) {
+        if ($oldSide.Code -ne $newSide.Code -or $o.Summary -cne $n.Summary) {
             $differ++
-            Write-Host $f -ForegroundColor Yellow
-            Write-Host "  old: $a"
-            Write-Host "  new: $b"
+            Write-Host "summary" -ForegroundColor Yellow
+            Write-Host "  old: $($o.Summary) (exit $($oldSide.Code))"
+            Write-Host "  new: $($n.Summary) (exit $($newSide.Code))"
         }
-    }
-    if ($oldSide.Code -ne $newSide.Code -or $o.Summary -cne $n.Summary) {
-        $differ++
-        Write-Host "summary" -ForegroundColor Yellow
-        Write-Host "  old: $($o.Summary) (exit $($oldSide.Code))"
-        Write-Host "  new: $($n.Summary) (exit $($newSide.Code))"
-    }
-    $same = $names.Count - @($names | Where-Object { ($o.Files[$_]) -cne ($n.Files[$_]) }).Count
-    $color = if ($differ) { "Yellow" } else { "Green" }
-    Write-Host "result lines: $same of $($names.Count) test files identical" -ForegroundColor $color
+        $same = $names.Count - @($names | Where-Object { ($o.Files[$_]) -cne ($n.Files[$_]) }).Count
+        $color = if ($differ) { "Yellow" } else { "Green" }
+        Write-Host "result lines: $same of $($names.Count) test files identical" -ForegroundColor $color
 
-    if (-not $Snapshot) {
-        Write-Host "load snapshot: not compared (pass -Snapshot <script.lua>: docs/ADOPTING.md, section 1)" -ForegroundColor Yellow
-    } else {
-        $sa, $sb = @($oldSide.Snapshot), @($newSide.Snapshot)
-        $sameSnap = $oldSide.SnapshotCode -eq $newSide.SnapshotCode -and $sa.Count -eq $sb.Count
-        for ($i = 0; $sameSnap -and $i -lt $sa.Count; $i++) { if ($sa[$i] -cne $sb[$i]) { $sameSnap = $false } }
-        if ($sameSnap) {
-            Write-Host "load snapshot: identical ($($sa.Count) lines, exit $($newSide.SnapshotCode))" -ForegroundColor Green
+        if (-not $Snapshot) {
+            Write-Host "load snapshot: not compared (pass -Snapshot <script.lua>: docs/ADOPTING.md, section 1)" -ForegroundColor Yellow
         } else {
-            $differ++
-            Write-Host "load snapshot: DIFFERS (old exit $($oldSide.SnapshotCode), $($sa.Count) lines; new exit $($newSide.SnapshotCode), $($sb.Count) lines)" -ForegroundColor Yellow
-            $d = @(Compare-Object -CaseSensitive -ReferenceObject $sa -DifferenceObject $sb)
-            $d | Select-Object -First 40 | ForEach-Object {
-                $mark = if ($_.SideIndicator -eq '<=') { 'old' } else { 'new' }
-                Write-Host "  ${mark}: $($_.InputObject)"
+            $sa, $sb = @($oldSide.Snapshot), @($newSide.Snapshot)
+            $sameSnap = $oldSide.SnapshotCode -eq $newSide.SnapshotCode -and $sa.Count -eq $sb.Count
+            for ($i = 0; $sameSnap -and $i -lt $sa.Count; $i++) { if ($sa[$i] -cne $sb[$i]) { $sameSnap = $false } }
+            if ($sameSnap) {
+                Write-Host "load snapshot: identical ($($sa.Count) lines, exit $($newSide.SnapshotCode))" -ForegroundColor Green
+            } else {
+                $differ++
+                Write-Host "load snapshot: DIFFERS (old exit $($oldSide.SnapshotCode), $($sa.Count) lines; new exit $($newSide.SnapshotCode), $($sb.Count) lines)" -ForegroundColor Yellow
+                # In order: the lines between the common start and the common end.
+                $pre = 0
+                while ($pre -lt $sa.Count -and $pre -lt $sb.Count -and $sa[$pre] -ceq $sb[$pre]) { $pre++ }
+                $post = 0
+                while ($post -lt ($sa.Count - $pre) -and $post -lt ($sb.Count - $pre) -and
+                    $sa[$sa.Count - 1 - $post] -ceq $sb[$sb.Count - 1 - $post]) { $post++ }
+                if ($pre -lt $sa.Count -or $pre -lt $sb.Count) { Write-Host "  from line $($pre + 1):" }
+                foreach ($side in @(@('old', $sa), @('new', $sb))) {
+                    $lines = @($side[1] | Select-Object -Skip $pre -First ($side[1].Count - $pre - $post))
+                    $lines | Select-Object -First 20 | ForEach-Object { Write-Host "  $($side[0]): $_" }
+                    if ($lines.Count -gt 20) { Write-Host "  $($side[0]): ... and $($lines.Count - 20) more" }
+                }
             }
-            if ($d.Count -gt 40) { Write-Host "  ... and $($d.Count - 40) more" }
+        }
+        # Identical lines from a run that failed prove nothing about the bump.
+        $broken = @()
+        foreach ($s in @(@('old', $oldSide), @('new', $newSide))) {
+            if ($s[1].Code -ne 0) { $broken += "$($s[0]) tests (exit $($s[1].Code))" }
+            if ($Snapshot -and $s[1].SnapshotCode -ne 0) { $broken += "$($s[0]) snapshot (exit $($s[1].SnapshotCode))" }
+        # A result the parser missed must not read as "identical".
+        $r = $s[1].Results
+        if ($null -eq $r.Ran) { $broken += "$($s[0]) tests (no runner summary in the output)" }
+        elseif ($r.Files.Count -ne $r.Ran) { $broken += "$($s[0]) tests (read $($r.Files.Count) of the $($r.Ran) files' results)" }
+        }
+        if ($broken) {
+            Write-Host "FAILED: $($broken -join ', '). The comparison means little until both pass: see the full outputs." -ForegroundColor Red
+        }
+        Write-Host "full outputs: $logDir" -ForegroundColor DarkGray
+        if ($differ -or $broken) { return 1 } else { return 0 }
+    } finally {
+        $lock.Dispose()
+        $now = if (Test-Path -LiteralPath $pinPath) { [IO.File]::ReadAllBytes($pinPath) } else { $null }
+        if ($null -ne $newBytes -and $null -ne $now -and [Convert]::ToBase64String($now) -ceq [Convert]::ToBase64String($newBytes)) {
+            Remove-Item -LiteralPath $backup
+        } elseif ($null -eq $newBytes) {
+            Remove-Item -LiteralPath $backup   # the pin was never read, so never changed
+        } else {
+            Write-Host "tests\kit.pin could not be put back: $backup holds it" -ForegroundColor Red
         }
     }
-    # Identical lines from a run that failed prove nothing about the bump.
-    $broken = @()
-    foreach ($s in @(@('old', $oldSide), @('new', $newSide))) {
-        if ($s[1].Code -ne 0) { $broken += "$($s[0]) tests (exit $($s[1].Code))" }
-        if ($Snapshot -and $s[1].SnapshotCode -ne 0) { $broken += "$($s[0]) snapshot (exit $($s[1].SnapshotCode))" }
-    }
-    if ($broken) {
-        Write-Host "FAILED: $($broken -join ', '). The comparison means little until both pass: see the full outputs." -ForegroundColor Red
-    }
-    Write-Host "full outputs: $logDir" -ForegroundColor DarkGray
-    if ($differ -or $broken) { return 1 } else { return 0 }
 }
 
 # Run directly (not dot-sourced): the comparison.
