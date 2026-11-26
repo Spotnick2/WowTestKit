@@ -233,6 +233,15 @@ try {
             if ($null -ne $f.Value) { Remove-Item -LiteralPath $f.Key }
         }
     }
+    # A lock still empty because its owner is writing it (opened by kit.ps1's
+    # own New-WowTestKitLock): running, not stopped. Closed and empty is above.
+    . (Join-Path $repo "tests/kit.ps1")
+    $held = New-WowTestKitLock $lockFile
+    try {
+        Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @("Another -Compare is running in this repo: wait for it to finish") @("delete") -Leftover | Out-Null
+    } finally { $held.Dispose() }
+    if ((Get-Item -LiteralPath $lockFile).Length -ne 0 -or (Test-Path -LiteralPath $backupFile)) { throw "A refusal changed a lock being written" }
+    Remove-Item -LiteralPath $lockFile
 
     Write-Host "kit.ps1 -Compare: both forms, the snapshot, the refusals; tests/kit.pin put back each time."
 } finally {

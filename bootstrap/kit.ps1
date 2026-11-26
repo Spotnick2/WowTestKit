@@ -136,6 +136,14 @@ function Get-WowTestKitResults {
     return @{ Files = $files; Summary = $summary; Ran = $ran }
 }
 
+# -Compare's lock, created atomically (an IOException if it exists). Not shared
+# until its process is written and the handle closed: a second -Compare can't
+# open it meanwhile, and waits, rather than reading it empty as a stopped one's.
+function New-WowTestKitLock {
+    param([string]$Path)
+    [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+}
+
 function Compare-WowTestKit {
     param(
         [Parameter(Mandatory)][string]$Compare,
@@ -172,10 +180,10 @@ function Compare-WowTestKit {
     }
     $me = Get-Process -Id $PID
     try {
-        $lock = [IO.File]::Open($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        $lock = New-WowTestKitLock $lockPath
     } catch [IO.IOException] {
-        # Unreadable (its owner is writing it): taken as running. Empty: its
-        # owner stopped before it wrote its process.
+        # Unreadable (its owner is writing it): taken as running. Empty and
+        # closed: its owner stopped before it wrote its process.
         $holder = try {
             $r = [IO.StreamReader]::new([IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
             try { $r.ReadToEnd() } finally { $r.Dispose() }
