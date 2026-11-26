@@ -23,10 +23,11 @@
     this repo> takes that commit's whole tests/kit.pin (sha, build, api); a
     40-hex sha that is no commit here replaces only sha=. The old pin is
     written into tests/kit.pin for its run and the file is put back byte for
-    byte after it. tests/kit.pin.compare-backup holds it, and is the lock:
-    created atomically before the pin is read and removed after both runs, so
-    a second -Compare refuses to start while one runs (or after one stopped
-    before it could clean up). Each side's full output
+    byte after it. tests/kit.pin.compare-lock, created atomically before the
+    pin is read and removed after both runs, makes a second -Compare refuse
+    to start: it says whether the first is still running, or stopped, and
+    then what to do. tests/kit.pin.compare-backup holds the pin while it is
+    changed, and exists only once complete. Each side's full output
     is kept in a WowTestKit-compare-<time> folder in %TEMP%. Exit 0: nothing
     differs and every run passed; 1: something differs, or a run failed (its
     identical lines prove nothing); 2: the comparison could not run.
@@ -87,12 +88,15 @@ function Get-WowTestKit {
 # Each test file's result line in the kit runner's output (scripts/run.ps1):
 # "-- test_x.lua " opens a file's output, and the runner's summary closes the
 # last one. The result is the file's last non-blank line, as the runner reads
-# it, or "error: <message>" for a file Lua stopped with an error (its last
-# line is the traceback's). Returns @{ Files = ordered name -> line;
-# Summary = line; Ran = the file count the summary gives }.
+# it, when that is a result line ("<name>: N passed, M failed", a SKIPPED
+# line). Otherwise, for a file Lua stopped with an error (its last line is the
+# traceback's), it is "error: <message>", from Lua's own "lua: " line: a test
+# may print one of its own. Returns @{ Files = ordered
+# name -> line; Summary = line; Ran = the file count the summary gives }.
 function Get-WowTestKitResults {
     param([string[]]$Lines)
     $errorRx = '^(.*[\\/])?lua(5\.1)?(\.exe)?: (.+)$'
+    $resultRx = '^(.+: [0-9]+ passed, [0-9]+ failed|.+: SKIPPED \(.+\)|SKIPPED: .+)$'
     $summaryRx = '^(All [0-9]+ test files passed|[0-9]+ of [0-9]+ test file\(s\) FAILED|No tests/test_\*\.lua files found)'
     $files = [ordered]@{}
     $summary = $null
@@ -100,9 +104,17 @@ function Get-WowTestKitResults {
     $body = [Collections.Generic.List[string]]::new()
     $close = {
         if (-not $file) { return }
-        $e = $body | Where-Object { $_ -cmatch $errorRx } | Select-Object -First 1
-        $r = if ($e) { "error: " + ($e -creplace $errorRx, '$4') } else { $body | Where-Object { $_.Trim() } | Select-Object -Last 1 }
-        $files[$file] = if ($r) { $r.Trim() } else { "(no output)" }
+        $last = $body | Where-Object { $_.Trim() } | Select-Object -Last 1
+        $last = if ($last) { $last.Trim() }
+        # A runtime error is the last "lua: " line before Lua's "stack traceback:"
+        # (stderr, so ahead of the file's buffered prints); a load error has none.
+        $tb = $body.FindIndex([Predicate[string]] { param($l) $l -cmatch '^stack traceback:' })
+        $e = $body | Select-Object -First $(if ($tb -ge 0) { $tb } else { $body.Count }) |
+            Where-Object { $_ -cmatch $errorRx } | Select-Object -Last 1
+        $files[$file] = if ($last -cmatch $resultRx) { $last }
+            elseif ($e) { "error: " + ($e -creplace $errorRx, '$4').Trim() }
+            elseif ($last) { $last }
+            else { "(no output)" }
     }
     foreach ($line in $Lines) {
         # A file that printed nothing leaves the next "-- test_y.lua " on its line.
@@ -133,6 +145,7 @@ function Compare-WowTestKit {
     # Forward slashes: [IO.File] doesn't read "\" as a separator off Windows.
     $pinPath = Join-Path $RepoRoot "tests/kit.pin"
     $backup = "$pinPath.compare-backup"
+    $lockPath = "$pinPath.compare-lock"
     $runPs1 = Join-Path $RepoRoot "tests/run.ps1"
     if (-not (Test-Path -LiteralPath $runPs1)) { Write-Host "no tests\run.ps1 in $RepoRoot" -ForegroundColor Red; return 2 }
     $luaExe = if ($Lua) { $Lua } else { "C:\Program Files (x86)\Lua\5.1\lua.exe" }
@@ -143,20 +156,56 @@ function Compare-WowTestKit {
     }
     if ($Compare -cmatch '^-') { Write-Host "-Compare takes a commit or a sha, not '$Compare'" -ForegroundColor Red; return 2 }
 
-    # The backup is also the lock: created atomically before the pin is read,
-    # and kept until both runs are done, so a second -Compare can neither read
-    # this one's old pin as "the current pin" nor swap the pin under its runs.
+    # The lock: created atomically before the pin is read, and kept until both
+    # runs are done, so a second -Compare can neither read this one's old pin
+    # as "the current pin" nor swap the pin under its runs. It names its
+    # process, so a refusal can tell a running -Compare from one that stopped.
+    # The backup is written whole, then renamed into place, before the pin is
+    # changed: when it exists, it is the complete pin as it was.
+    $bytesOf = { param($p) if (Test-Path -LiteralPath $p) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($p)) } }
+    $backupAdvice = {
+        if (-not (Test-Path -LiteralPath $backup)) { return "it stopped before it changed tests\kit.pin" }
+        if ((& $bytesOf $backup) -ceq (& $bytesOf $pinPath)) { return "tests\kit.pin is as it was: delete $backup" }
+        "it stopped with its old pin in tests\kit.pin, and $backup holds the pin as it was: move it over tests\kit.pin"
+    }
+    $me = Get-Process -Id $PID
     try {
-        $lock = [IO.File]::Open($backup, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        $lock = [IO.File]::Open($lockPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
     } catch [IO.IOException] {
-        Write-Host "$backup exists: another -Compare is running, or one stopped before it finished. It holds the pin as it was before that run: if tests\kit.pin matches it, delete it; otherwise move it back over tests\kit.pin. Then run again." -ForegroundColor Red
+        # Unreadable (its owner is writing it): taken as running. Empty: its
+        # owner stopped before it wrote its process.
+        $holder = try {
+            $r = [IO.StreamReader]::new([IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+            try { $r.ReadToEnd() } finally { $r.Dispose() }
+        } catch { $null }
+        $running, $p = ($null -eq $holder), $null
+        if ($holder -cmatch '^pid=([0-9]+) start=([0-9]+)') {
+            $p = Get-Process -Id ([int]$Matches[1]) -ErrorAction SilentlyContinue
+            $start = [long]$Matches[2]
+            if ($p) { $running = try { [Math]::Abs($p.StartTime.ToUniversalTime().Ticks - $start) -lt 10000000 } catch { $true } }
+        }
+        if ($running) {
+            Write-Host "Another -Compare is running in this repo$(if ($p) { " (process $($p.Id))" }): wait for it to finish, then run again." -ForegroundColor Red
+        } else {
+            Write-Host "An earlier -Compare left $lockPath and is no longer running: $(& $backupAdvice). Then delete $lockPath and run again." -ForegroundColor Red
+        }
         return 2
     }
-    $newBytes = $null
+    $newBytes, $madeBackup = $null, $false
     try {
+        try {
+            $mine = [Text.Encoding]::ASCII.GetBytes("pid=$PID start=$($me.StartTime.ToUniversalTime().Ticks)`n")
+            $lock.Write($mine, 0, $mine.Length)
+        } finally { $lock.Dispose() }
+        if (Test-Path -LiteralPath $backup) {
+            Write-Host "$backup is left from an earlier -Compare: $(& $backupAdvice). Then run again." -ForegroundColor Red
+            return 2
+        }
         $newBytes = [IO.File]::ReadAllBytes($pinPath)
-        $lock.Write($newBytes, 0, $newBytes.Length)
-        $lock.Dispose()
+        $partial = "$backup.partial"
+        [IO.File]::WriteAllBytes($partial, $newBytes)
+        [IO.File]::Move($partial, $backup)
+        $madeBackup = $true
         # The old pin: a commit of this repo gives its whole tests/kit.pin; a kit
         # sha replaces sha= in the current one.
         $newLines = @(Get-Content -LiteralPath $pinPath)
@@ -295,14 +344,15 @@ function Compare-WowTestKit {
         Write-Host "full outputs: $logDir" -ForegroundColor DarkGray
         if ($differ -or $broken) { return 1 } else { return 0 }
     } finally {
-        $lock.Dispose()
-        $now = if (Test-Path -LiteralPath $pinPath) { [IO.File]::ReadAllBytes($pinPath) } else { $null }
-        if ($null -ne $newBytes -and $null -ne $now -and [Convert]::ToBase64String($now) -ceq [Convert]::ToBase64String($newBytes)) {
+        # Released only once the pin is back: until then the lock and the backup
+        # stay, and the next -Compare says what to do.
+        if (-not $madeBackup) {
+            Remove-Item -LiteralPath $lockPath   # the pin was never changed
+        } elseif ((& $bytesOf $pinPath) -ceq [Convert]::ToBase64String($newBytes)) {
             Remove-Item -LiteralPath $backup
-        } elseif ($null -eq $newBytes) {
-            Remove-Item -LiteralPath $backup   # the pin was never read, so never changed
+            Remove-Item -LiteralPath $lockPath
         } else {
-            Write-Host "tests\kit.pin could not be put back: $backup holds it" -ForegroundColor Red
+            Write-Host "tests\kit.pin could not be put back: move $backup over it, then delete $lockPath" -ForegroundColor Red
         }
     }
 }

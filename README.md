@@ -75,8 +75,10 @@ differs, and, with `-Snapshot`, whether the load snapshot ([docs/ADOPTING.md](do
 section 1) is identical. A commit of the repo gives its whole `tests/kit.pin` (sha, build and
 api), so use one when the bump changes the build: a kit sha replaces `sha=` only. The old pin is
 written into `tests/kit.pin` for its run and the file is put back byte for byte;
-`tests/kit.pin.compare-backup` holds it until both runs are done, and is also the lock: a second
-`-Compare` refuses to start while that file exists. Exit 0 means nothing differs and both runs
+`tests/kit.pin.compare-backup` holds it meanwhile, and exists only once it is complete.
+`tests/kit.pin.compare-lock`, kept until both runs are done, makes a second `-Compare` refuse to
+start. It says whether the first is still running (wait for it) or stopped, and then what to do
+with what it left. Exit 0 means nothing differs and both runs
 passed. 1 means something differs, a run failed, or a run's results couldn't all be read. 2 means
 it couldn't run. Copy the new `kit.ps1` into
 `tests/` first: it's part of the bump.

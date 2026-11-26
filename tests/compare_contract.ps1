@@ -50,9 +50,9 @@ function Set-Pin([string]$Sha) {
     [IO.File]::WriteAllText($pin, "# the pin`r`nsha=$Sha # pinned kit`r`nbuild=70532`r`napi=2`r`n")
 }
 
-# Every run leaves no backup (the lock) behind, refusals included, except -KeepsBackup:
-# one that found a backup already there and must leave it as it was.
-function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [string[]]$Lacks = @(), [switch]$KeepsBackup) {
+# Every run leaves no lock or backup behind, refusals included, except -Leftover:
+# one that found them already there and must leave them as they were.
+function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [string[]]$Lacks = @(), [switch]$Leftover) {
     $before = [IO.File]::ReadAllBytes($pin)
     Push-Location $repo
     try { $out = (& $pwsh -NoProfile -File (Join-Path $repo "tests/kit.ps1") @CompareArgs 2>&1) -join "`n"; $got = $LASTEXITCODE }
@@ -63,7 +63,11 @@ function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [str
     foreach ($s in $Lacks) { if ($out.Contains($s)) { throw "${what}: '$s' should not be in:`n$out" } }
     $after = [IO.File]::ReadAllBytes($pin)
     if ([Convert]::ToBase64String($after) -cne [Convert]::ToBase64String($before)) { throw "${what}: tests/kit.pin changed" }
-    if ((Test-Path -LiteralPath "$pin.compare-backup") -and -not $KeepsBackup) { throw "${what}: the backup was left behind" }
+    if (-not $Leftover) {
+        foreach ($f in "$pin.compare-backup", "$pin.compare-lock", "$pin.compare-backup.partial") {
+            if (Test-Path -LiteralPath $f) { throw "${what}: $f was left behind" }
+        }
+    }
     return $out
 }
 
@@ -92,7 +96,9 @@ try {
             '$kit = Get-WowTestKit -RepoRoot $RepoRoot'
             '& (Join-Path $kit "scripts/run.ps1") -RepoRoot $RepoRoot -Lua $Lua'
             'exit $LASTEXITCODE')
+        # A line of its own that looks like Lua's error, before a valid result.
         'tests/test_a.lua' = @(
+            'print("lua: optional tool unavailable")'
             'local f = assert(io.open(os.getenv("WOWTESTKIT") .. "/count.txt"))'
             'local n = f:read("*l") f:close()'
             'if n == "crash" then error("crash") end'
@@ -109,12 +115,13 @@ try {
             'local n = f:read("*l") f:close()'
             'if n == "crash" then n = "3" end'
             'print("test_d d: " .. n .. " passed, 0 failed")')
-        # Each line of snap.txt, then whether the backup (the lock) is there while it runs.
+        # Each line of snap.txt, then whether the lock and the backup are there while it runs.
         'snapshot.lua' = @(
             'print("## named frames")'
             'for l in io.lines(os.getenv("WOWTESTKIT") .. "/snap.txt") do print(l) end'
-            'local lock = io.open("tests/kit.pin.compare-backup")'
-            'print(lock and "lock held" or "no lock") if lock then lock:close() end')
+            'local lock, backup = io.open("tests/kit.pin.compare-lock"), io.open("tests/kit.pin.compare-backup")'
+            'print((lock and "lock" or "no lock") .. ", " .. (backup and "backup" or "no backup"))'
+            'if lock then lock:close() end if backup then backup:close() end')
     }
     foreach ($k in $files.Keys) { Set-Content -LiteralPath (Join-Path $repo $k) -Value $files[$k] }
     Set-Pin $k1
@@ -135,8 +142,8 @@ try {
     # The lock was held through both runs: each snapshot saw it.
     $logs = [regex]::Match($out, 'full outputs: (.+)').Groups[1].Value.Trim()
     foreach ($side in 'old', 'new') {
-        if ((Get-Content -LiteralPath (Join-Path $logs "$side-snapshot.txt")) -notcontains "lock held") {
-            throw "The $side run didn't see tests/kit.pin.compare-backup"
+        if ((Get-Content -LiteralPath (Join-Path $logs "$side-snapshot.txt")) -notcontains "lock, backup") {
+            throw "The $side run didn't see tests/kit.pin.compare-lock and .compare-backup"
         }
     }
 
@@ -157,7 +164,7 @@ try {
     Invoke-Compare @('-Compare', $k3, '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 1 @(
         "result lines: 4 of 4 test files identical", "load snapshot: DIFFERS", "  from line 2:",
         "  old: frame B", "  new: frame A"
-    ) @("has no data for build", "lock held") | Out-Null
+    ) @("has no data for build", "lock, backup") | Out-Null
 
     # Lines that only change order: shown in order, from the first that differs.
     Set-Pin $k10
@@ -172,10 +179,10 @@ try {
 
     # A test file Lua stopped: its error, not its traceback's last line; the summary differs.
     Invoke-Compare @('-Compare', $k5, '-Lua', $Lua) 1 @(
-        "test_a.lua", "  old: error: ", "test_a.lua:3: crash", "  new: test_a: 3 passed, 0 failed",
+        "test_a.lua", "  old: error: ", "test_a.lua:4: crash", "  new: test_a: 3 passed, 0 failed",
         "summary", "  old: 1 of 4 test file(s) FAILED (exit 1)", "  new: All 4 test files passed (1 skipped). (exit 0)",
         "result lines: 3 of 4 test files identical"
-    ) @("[C]: ?") | Out-Null
+    ) @("[C]: ?", "optional tool unavailable") | Out-Null
 
     # Both runs fail the same way: identical, and still not a pass.
     Set-Pin $k6
@@ -195,9 +202,37 @@ try {
     Invoke-Compare @('-Compare', $k1, '-Lua', $Lua) 2 @("The two pins are the same") | Out-Null
     Invoke-Compare @('-Compare', 'no-such-ref', '-Lua', $Lua) 2 @("is neither") | Out-Null
     Invoke-Compare @() 2 @("usage:") | Out-Null
-    [IO.File]::WriteAllText("$pin.compare-backup", "sha=$k2`n")
-    Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @("another -Compare is running, or one stopped") -KeepsBackup | Out-Null
-    if ([IO.File]::ReadAllText("$pin.compare-backup") -ne "sha=$k2`n") { throw "The leftover backup was touched" }
+
+    # What an earlier -Compare left: the refusal says whether it runs and what to
+    # do, and touches nothing. A lock names its process; this one's id with
+    # another start time is a process that stopped.
+    $lockFile, $backupFile = "$pin.compare-lock", "$pin.compare-backup"
+    $live = "pid=$PID start=$((Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks)`n"
+    $dead = "pid=$PID start=0`n"
+    $asIs = [IO.File]::ReadAllText($pin)
+    $running = "Another -Compare is running in this repo (process $PID): wait for it to finish"
+    $before = "is no longer running: it stopped before it changed tests\kit.pin. Then delete"
+    $move = "it stopped with its old pin in tests\kit.pin, and "
+    foreach ($c in @(
+        @{ Lock = $live; Backup = $null;       Has = $running }
+        @{ Lock = $live; Backup = "sha=$k2`n"; Has = $running }   # its old pin is in: wait, don't move
+        @{ Lock = $dead; Backup = $null;       Has = $before }
+        @{ Lock = "";    Backup = $null;       Has = $before }    # stopped before it wrote its process
+        @{ Lock = $dead; Backup = $asIs;       Has = "is no longer running: tests\kit.pin is as it was: delete " }
+        @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $move" }
+        @{ Lock = $null; Backup = "sha=$k2`n"; Has = "is left from an earlier -Compare: $move" }
+    )) {
+        foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
+            if ($null -ne $f.Value) { [IO.File]::WriteAllText($f.Key, $f.Value) }
+        }
+        $lacks = if ($c.Has -ceq $running) { "move it over" } else { "wait for it" }
+        Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @($c.Has) @($lacks) -Leftover | Out-Null
+        foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
+            $now = if (Test-Path -LiteralPath $f.Key) { [IO.File]::ReadAllText($f.Key) }
+            if ($now -cne $f.Value) { throw "A refusal changed $($f.Key): '$now', was '$($f.Value)'" }
+            if ($null -ne $f.Value) { Remove-Item -LiteralPath $f.Key }
+        }
+    }
 
     Write-Host "kit.ps1 -Compare: both forms, the snapshot, the refusals; tests/kit.pin put back each time."
 } finally {
