@@ -136,12 +136,20 @@ function Get-WowTestKitResults {
     return @{ Files = $files; Summary = $summary; Ran = $ran }
 }
 
-# -Compare's lock, created atomically (an IOException if it exists). Not shared
-# until its process is written and the handle closed: a second -Compare can't
-# open it meanwhile, and waits, rather than reading it empty as a stopped one's.
+# -Compare's lock: $Content written whole under another name, then moved to
+# $Path, a move that fails if $Path exists (MoveFileEx without replace on
+# Windows, link() on Linux). So the lock never exists empty or half written,
+# and only one -Compare makes it. $false: it exists already.
 function New-WowTestKitLock {
-    param([string]$Path)
-    [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    param([string]$Path, [byte[]]$Content)
+    $tmp = "$Path.$PID.new"
+    [IO.File]::WriteAllBytes($tmp, $Content)
+    try { [IO.File]::Move($tmp, $Path); return $true }
+    catch [IO.IOException] {
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Path) { return $false }
+        throw
+    }
 }
 
 function Compare-WowTestKit {
@@ -178,24 +186,26 @@ function Compare-WowTestKit {
         if ((& $bytesOf $backup) -ceq (& $bytesOf $pinPath)) { return "tests\kit.pin is as it was: delete $backup" }
         "it stopped with its old pin in tests\kit.pin, and $backup holds the pin as it was: move it over tests\kit.pin"
     }
-    $me = Get-Process -Id $PID
-    try {
-        $lock = New-WowTestKitLock $lockPath
-    } catch [IO.IOException] {
-        # Unreadable (its owner is writing it): taken as running. Empty and
-        # closed: its owner stopped before it wrote its process.
+    $mine = [Text.Encoding]::ASCII.GetBytes("pid=$PID start=$((Get-Process -Id $PID).StartTime.ToUniversalTime().Ticks)`n")
+    if (-not (New-WowTestKitLock $lockPath $mine)) {
+        # Unreadable: taken as running. Naming no process (no -Compare writes
+        # one so, but a hand or another tool might): nothing to check, so
+        # whether one runs is the user's to confirm.
         $holder = try {
             $r = [IO.StreamReader]::new([IO.File]::Open($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
             try { $r.ReadToEnd() } finally { $r.Dispose() }
         } catch { $null }
-        $running, $p = ($null -eq $holder), $null
+        $running, $p, $named = ($null -eq $holder), $null, $false
         if ($holder -cmatch '^pid=([0-9]+) start=([0-9]+)') {
+            $named = $true
             $p = Get-Process -Id ([int]$Matches[1]) -ErrorAction SilentlyContinue
             $start = [long]$Matches[2]
             if ($p) { $running = try { [Math]::Abs($p.StartTime.ToUniversalTime().Ticks - $start) -lt 10000000 } catch { $true } }
         }
         if ($running) {
             Write-Host "Another -Compare is running in this repo$(if ($p) { " (process $($p.Id))" }): wait for it to finish, then run again." -ForegroundColor Red
+        } elseif (-not $named) {
+            Write-Host "$lockPath names no process to check. Make sure no -Compare is running in this repo; if none is, $(& $backupAdvice). Then delete $lockPath and run again." -ForegroundColor Red
         } else {
             Write-Host "An earlier -Compare left $lockPath and is no longer running: $(& $backupAdvice). Then delete $lockPath and run again." -ForegroundColor Red
         }
@@ -203,10 +213,6 @@ function Compare-WowTestKit {
     }
     $newBytes, $madeBackup = $null, $false
     try {
-        try {
-            $mine = [Text.Encoding]::ASCII.GetBytes("pid=$PID start=$($me.StartTime.ToUniversalTime().Ticks)`n")
-            $lock.Write($mine, 0, $mine.Length)
-        } finally { $lock.Dispose() }
         if (Test-Path -LiteralPath $backup) {
             Write-Host "$backup is left from an earlier -Compare: $(& $backupAdvice). Then run again." -ForegroundColor Red
             return 2

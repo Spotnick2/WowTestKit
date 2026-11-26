@@ -63,6 +63,8 @@ function Invoke-Compare([string[]]$CompareArgs, [int]$Code, [string[]]$Has, [str
     foreach ($s in $Lacks) { if ($out.Contains($s)) { throw "${what}: '$s' should not be in:`n$out" } }
     $after = [IO.File]::ReadAllBytes($pin)
     if ([Convert]::ToBase64String($after) -cne [Convert]::ToBase64String($before)) { throw "${what}: tests/kit.pin changed" }
+    $strays = @(Get-ChildItem -LiteralPath (Split-Path -Parent $pin) | Where-Object { $_.Name -clike "kit.pin.compare-lock.*" })
+    if ($strays) { throw "${what}: left $($strays.Name -join ', ')" }
     if (-not $Leftover) {
         foreach ($f in "$pin.compare-backup", "$pin.compare-lock", "$pin.compare-backup.partial") {
             if (Test-Path -LiteralPath $f) { throw "${what}: $f was left behind" }
@@ -217,7 +219,9 @@ try {
         @{ Lock = $live; Backup = $null;       Has = $running }
         @{ Lock = $live; Backup = "sha=$k2`n"; Has = $running }   # its old pin is in: wait, don't move
         @{ Lock = $dead; Backup = $null;       Has = $before }
-        @{ Lock = "";    Backup = $null;       Has = $before }    # stopped before it wrote its process
+        # Naming no process: nothing to check, so no "it stopped", only what to do once sure.
+        @{ Lock = "";        Backup = $null;       Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, it stopped before it changed"; Lacks = "is no longer running" }
+        @{ Lock = "garbage"; Backup = "sha=$k2`n"; Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, $move"; Lacks = "is no longer running" }
         @{ Lock = $dead; Backup = $asIs;       Has = "is no longer running: tests\kit.pin is as it was: delete " }
         @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $move" }
         @{ Lock = $null; Backup = "sha=$k2`n"; Has = "is left from an earlier -Compare: $move" }
@@ -225,22 +229,25 @@ try {
         foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
             if ($null -ne $f.Value) { [IO.File]::WriteAllText($f.Key, $f.Value) }
         }
-        $lacks = if ($c.Has -ceq $running) { "move it over" } else { "wait for it" }
-        Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @($c.Has) @($lacks) -Leftover | Out-Null
+        $lacks = @(if ($c.Has -ceq $running) { "move it over" } else { "wait for it" }) + @($c.Lacks | Where-Object { $_ })
+        Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @($c.Has) $lacks -Leftover | Out-Null
         foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
             $now = if (Test-Path -LiteralPath $f.Key) { [IO.File]::ReadAllText($f.Key) }
             if ($now -cne $f.Value) { throw "A refusal changed $($f.Key): '$now', was '$($f.Value)'" }
             if ($null -ne $f.Value) { Remove-Item -LiteralPath $f.Key }
         }
     }
-    # A lock still empty because its owner is writing it (opened by kit.ps1's
-    # own New-WowTestKitLock): running, not stopped. Closed and empty is above.
+    # The lock is made whole or not at all: kit.ps1's own New-WowTestKitLock
+    # creates it with its content, refuses an existing one without touching it,
+    # and leaves no temporary file either way.
     . (Join-Path $repo "tests/kit.ps1")
-    $held = New-WowTestKitLock $lockFile
-    try {
-        Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @("Another -Compare is running in this repo: wait for it to finish") @("delete") -Leftover | Out-Null
-    } finally { $held.Dispose() }
-    if ((Get-Item -LiteralPath $lockFile).Length -ne 0 -or (Test-Path -LiteralPath $backupFile)) { throw "A refusal changed a lock being written" }
+    $content = [Text.Encoding]::ASCII.GetBytes("pid=1 start=2`n")
+    $other = [Text.Encoding]::ASCII.GetBytes("pid=3 start=4`n")
+    if ((New-WowTestKitLock $lockFile $content) -ne $true) { throw "New-WowTestKitLock didn't make a new lock" }
+    if ((New-WowTestKitLock $lockFile $other) -ne $false) { throw "New-WowTestKitLock took an existing lock" }
+    if ([IO.File]::ReadAllText($lockFile) -cne "pid=1 start=2`n") { throw "New-WowTestKitLock changed an existing lock" }
+    $strays = @(Get-ChildItem -LiteralPath (Split-Path -Parent $lockFile) | Where-Object { $_.Name -clike "kit.pin.compare-lock.*" })
+    if ($strays) { throw "New-WowTestKitLock left $($strays.Name -join ', ')" }
     Remove-Item -LiteralPath $lockFile
 
     Write-Host "kit.ps1 -Compare: both forms, the snapshot, the refusals; tests/kit.pin put back each time."
