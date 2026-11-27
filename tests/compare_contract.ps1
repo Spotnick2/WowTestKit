@@ -139,14 +139,14 @@ try {
             'if n == "crash" then n = "3" end'
             'print("test_d d: " .. n .. " passed, 0 failed")')
         # Each line of snap.txt, then whether the lock and the backup are there
-        # while it runs. The lock's text goes to lock-seen.txt.
+        # while it runs. The lock's text is added to lock-seen.txt.
         'snapshot.lua' = @(
             'dofile("tests/kit.lua")'
             'print("## named frames")'
             'for l in io.lines(os.getenv("WOWTESTKIT") .. "/snap.txt") do print(l) end'
             'local lock, backup = io.open("tests/kit.pin.compare-lock", "rb"), io.open("tests/kit.pin.compare-backup")'
             'print((lock and "lock" or "no lock") .. ", " .. (backup and "backup" or "no backup"))'
-            'if lock then local s = assert(io.open("lock-seen.txt", "wb")) s:write(lock:read("*a")) s:close() lock:close() end'
+            'if lock then local s = assert(io.open("lock-seen.txt", "ab")) s:write(lock:read("*a")) s:close() lock:close() end'
             'if backup then backup:close() end'
             # An edit to the pin while the comparison runs (the kit's edit.txt).
             'local e = io.open(os.getenv("WOWTESTKIT") .. "/edit.txt", "rb")'
@@ -178,10 +178,13 @@ try {
         # Each side ran on its own fixed pin (#123), saved in the logs.
         if (-not (Test-Path -LiteralPath (Join-Path $logs "$side-kit.pin"))) { throw "No $side-kit.pin in the logs" }
     }
-    # The lock records the old pin (HEAD's, as -Compare HEAD writes it) after its pid= line (#123).
+    # The lock records the old pin (HEAD's, as -Compare HEAD writes it) after
+    # its pid= line, and the new side sees a "back" line after it (#123).
     $seen = [IO.File]::ReadAllText((Join-Path $repo "lock-seen.txt"))
+    Remove-Item -LiteralPath (Join-Path $repo "lock-seen.txt")
     $headOld = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("# the pin`nsha=$k1 # pinned kit`nbuild=70532`napi=2`n"))
-    if ($seen -cnotmatch "^pid=[0-9]+ start=[0-9]+`nold=$([regex]::Escape($headOld)) end`n$") { throw "The lock doesn't record the old pin: '$seen'" }
+    $lockRx = "pid=[0-9]+ start=[0-9]+`nold=$([regex]::Escape($headOld)) end`n"
+    if ($seen -cnotmatch "^($lockRx)\1back`n$") { throw "The lock doesn't record the old pin, then its end, by side: '$seen'" }
     if ([IO.File]::ReadAllText((Join-Path $logs "new-kit.pin")) -cne [IO.File]::ReadAllText($pin)) { throw "new-kit.pin isn't tests/kit.pin as it was" }
 
     # A writer puts the old pin in tests/kit.pin around each child run, and
@@ -351,6 +354,9 @@ try {
         # The pin is a third version, neither the backup nor the old pin the lock records: keep both.
         @{ Lock = "$dead$other"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
         @{ Lock = "$dead$cut"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
+        # Stopped after the switch back began: the old pin's bytes are now someone's save.
+        @{ Lock = "$dead${record}back`n"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
+        @{ Lock = "$dead${record}b"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
         # Stopped before the old pin went in (no record): the pin differs by someone's edit.
         @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
         # The lock is gone, and with it the record.

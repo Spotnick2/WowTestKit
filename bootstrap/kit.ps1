@@ -237,7 +237,10 @@ function Compare-WowTestKit {
         if (-not (Test-Path -LiteralPath $backup)) { return "it stopped before it changed tests\kit.pin" }
         $now = & $bytesOf $pinPath
         if ((& $bytesOf $backup) -ceq $now) { return "tests\kit.pin is as it was: delete $backup" }
-        if ($now -and "$holder" -cmatch '(?m)^old=([A-Za-z0-9+/=]+) end\r?$' -and $Matches[1] -ceq $now) {
+        # The record counts only as the lock's last line: the "back" line after
+        # it (or any part of one) ends the old pin's phase, after which the
+        # old pin's bytes in tests\kit.pin are someone's save.
+        if ($now -and "$holder" -cmatch '(?m)^old=([A-Za-z0-9+/=]+) end\r?\n?\z' -and $Matches[1] -ceq $now) {
             return "it stopped with its old pin in tests\kit.pin, and $backup holds the pin as it was: move it over tests\kit.pin"
         }
         "tests\kit.pin is neither the pin as it was nor the old pin it wrote, so it was edited meanwhile: keep both. Compare tests\kit.pin with $backup, keep in tests\kit.pin the pin you want, then delete $backup"
@@ -359,9 +362,15 @@ function Compare-WowTestKit {
         # The lock records the old pin before it goes in, so a stale lock's
         # advice can tell it from someone's edit (#123). Appended after the
         # pid= line, which still comes first; a reader may open the lock meanwhile.
-        $record = [Text.Encoding]::ASCII.GetBytes("old=$(& $b64 $oldBytes) end`n")
-        $s = [IO.File]::Open($lockPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
-        try { $s.Write($record, 0, $record.Length); $s.Flush($true) } finally { $s.Dispose() }
+        # Before the switch back, a "back" line ends that phase: from then on
+        # the old pin's bytes in tests/kit.pin are someone's save, not ours.
+        $appendLock = {
+            param([string]$text)
+            $bytes = [Text.Encoding]::ASCII.GetBytes($text)
+            $s = [IO.File]::Open($lockPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+            try { $s.Write($bytes, 0, $bytes.Length); $s.Flush($true) } finally { $s.Dispose() }
+        }
+        & $appendLock "old=$(& $b64 $oldBytes) end`n"
         try {
             try {
                 if (-not (Switch-WowTestKitPin $pinPath $newBytes $oldBytes)) { return 2 }
@@ -371,7 +380,10 @@ function Compare-WowTestKit {
                 # $ours stays set only if the switch back fails. A refused one
                 # is an edit, even when the pin now holds the startup bytes
                 # again (a git restore): the old run may have read them.
-                if ($ours) { $edited = -not (Switch-WowTestKitPin $pinPath $oldBytes $newBytes); $ours = $false }
+                if ($ours) {
+                    try { & $appendLock "back`n" }
+                    finally { $edited = -not (Switch-WowTestKitPin $pinPath $oldBytes $newBytes); $ours = $false }
+                }
             }
             # A later edit is the check after the new run's, or the cleanup's.
             if ($edited) { return 2 }

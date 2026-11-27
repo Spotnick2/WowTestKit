@@ -87,9 +87,10 @@ during the swap can still be overwritten.
 `tests/kit.pin.compare-lock`, created atomically, naming the process that made it, and kept until both
 runs are done, makes a second `-Compare` refuse to start. It says whether the first is still
 running (wait for it) or stopped, and then what to do with what it left. The lock records the
-old pin before it goes in, and you're told to move the backup over `tests/kit.pin` only while
-`tests/kit.pin` holds that pin. A `tests/kit.pin` that is
-neither that pin nor the backup is someone's edit, so you're told to keep both and compare them.
+old pin before it goes in, and adds a line just before the pin is put back. You're told to move
+the backup over `tests/kit.pin` only when `tests/kit.pin` holds that old pin and the lock has no
+line after the record. Anything else is someone's edit, including the old pin's bytes saved after
+the switch back started, so you're told to keep both files and compare them.
 For a lock that names no process, you check yourself that no `-Compare` is running. Exit 0 means nothing differs and both runs
 passed. 1 means something differs, a run failed, or a run's results couldn't all be read. 2 means
 it couldn't run. Copy the new `kit.ps1` and `kit.lua` into
