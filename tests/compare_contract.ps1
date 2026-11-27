@@ -34,6 +34,14 @@ function New-FixtureKit([string]$Count, [string[]]$Snap, [string]$Extra = "", [s
         $runner = $runner.Replace($Patch[0], $Patch[1])
     }
     [IO.File]::WriteAllText((Join-Path $dir "scripts/run.ps1"), $runner)
+    # Kit.load fails unless the pin tests/kit.lua read names this kit (its cache folder is its sha).
+    Set-Content -LiteralPath (Join-Path $dir "kit.lua") -Value @(
+        'Kit = { load = function(p)'
+        '    local dir = (os.getenv("WOWTESTKIT") or ""):gsub("\\", "/")'
+        '    if not dir:find("/" .. tostring(p.sha) .. "$") then'
+        '        error("tests/kit.lua read the pin " .. tostring(p.sha) .. " for the kit at " .. dir, 0)'
+        '    end'
+        'end }')
     Set-Content -LiteralPath (Join-Path $dir "count.txt") -Value $Count
     Set-Content -LiteralPath (Join-Path $dir "snap.txt") -Value $Snap
     if ($Extra) { Set-Content -LiteralPath (Join-Path $dir "extra.txt") -Value $Extra }
@@ -93,14 +101,22 @@ try {
     $k13 = New-FixtureKit "3" "frame A" -Edit "# the pin`r`nsha=$k1 # pinned kit`r`nbuild=70532`r`napi=2`r`n"   # ...back to Set-Pin $k1
 
     Copy-Item -LiteralPath (Join-Path $kitRepo "bootstrap/kit.ps1") -Destination (Join-Path $repo "tests/kit.ps1")
+    Copy-Item -LiteralPath (Join-Path $kitRepo "bootstrap/kit.lua") -Destination (Join-Path $repo "tests/kit.lua")
     $files = @{
+        # $env:FIXTURE_SWAP_PIN: a writer that puts that file's pin in
+        # tests/kit.pin for the whole child run, and the pin back after it.
         'tests/run.ps1' = @(
             'param([string]$Lua)'
             '$RepoRoot = Split-Path -Parent $PSScriptRoot'
             '. (Join-Path $PSScriptRoot "kit.ps1")'
-            '$kit = Get-WowTestKit -RepoRoot $RepoRoot'
-            '& (Join-Path $kit "scripts/run.ps1") -RepoRoot $RepoRoot -Lua $Lua'
-            'exit $LASTEXITCODE')
+            '$pinFile, $swap = (Join-Path $RepoRoot "tests/kit.pin"), $env:FIXTURE_SWAP_PIN'
+            'if ($swap) { $keep = [IO.File]::ReadAllBytes($pinFile); [IO.File]::WriteAllBytes($pinFile, [IO.File]::ReadAllBytes($swap)) }'
+            'try {'
+            '    $kit = Get-WowTestKit -RepoRoot $RepoRoot'
+            '    & (Join-Path $kit "scripts/run.ps1") -RepoRoot $RepoRoot -Lua $Lua'
+            '    $code = $LASTEXITCODE'
+            '} finally { if ($swap) { [IO.File]::WriteAllBytes($pinFile, $keep) } }'
+            'exit $code')
         # A line of its own that looks like Lua's error, before a valid result.
         'tests/test_a.lua' = @(
             'print("lua: optional tool unavailable")'
@@ -109,7 +125,9 @@ try {
             'if n == "crash" then error("crash") end'
             'print("test_a: " .. n .. " passed, 0 failed")')
         # Its first line follows the kit, its result doesn't: only the result counts.
+        # It loads the kit through tests/kit.lua, which reads the pin too.
         'tests/test_b.lua' = @(
+            'dofile("tests/kit.lua")'
             'local f = assert(io.open(os.getenv("WOWTESTKIT") .. "/snap.txt"))'
             'print("drew " .. f:read("*l")) f:close()'
             'print("test_b: 2 passed, 0 failed")')
@@ -120,13 +138,16 @@ try {
             'local n = f:read("*l") f:close()'
             'if n == "crash" then n = "3" end'
             'print("test_d d: " .. n .. " passed, 0 failed")')
-        # Each line of snap.txt, then whether the lock and the backup are there while it runs.
+        # Each line of snap.txt, then whether the lock and the backup are there
+        # while it runs. The lock's text goes to lock-seen.txt.
         'snapshot.lua' = @(
+            'dofile("tests/kit.lua")'
             'print("## named frames")'
             'for l in io.lines(os.getenv("WOWTESTKIT") .. "/snap.txt") do print(l) end'
-            'local lock, backup = io.open("tests/kit.pin.compare-lock"), io.open("tests/kit.pin.compare-backup")'
+            'local lock, backup = io.open("tests/kit.pin.compare-lock", "rb"), io.open("tests/kit.pin.compare-backup")'
             'print((lock and "lock" or "no lock") .. ", " .. (backup and "backup" or "no backup"))'
-            'if lock then lock:close() end if backup then backup:close() end'
+            'if lock then local s = assert(io.open("lock-seen.txt", "wb")) s:write(lock:read("*a")) s:close() lock:close() end'
+            'if backup then backup:close() end'
             # An edit to the pin while the comparison runs (the kit's edit.txt).
             'local e = io.open(os.getenv("WOWTESTKIT") .. "/edit.txt", "rb")'
             'if e then local t = e:read("*a") e:close() local p = assert(io.open("tests/kit.pin", "wb")) p:write(t) p:close() end')
@@ -154,7 +175,28 @@ try {
         if ((Get-Content -LiteralPath (Join-Path $logs "$side-snapshot.txt")) -notcontains "lock, backup") {
             throw "The $side run didn't see tests/kit.pin.compare-lock and .compare-backup"
         }
+        # Each side ran on its own fixed pin (#123), saved in the logs.
+        if (-not (Test-Path -LiteralPath (Join-Path $logs "$side-kit.pin"))) { throw "No $side-kit.pin in the logs" }
     }
+    # The lock records the old pin (HEAD's, as -Compare HEAD writes it) after its pid= line (#123).
+    $seen = [IO.File]::ReadAllText((Join-Path $repo "lock-seen.txt"))
+    $headOld = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("# the pin`nsha=$k1 # pinned kit`nbuild=70532`napi=2`n"))
+    if ($seen -cnotmatch "^pid=[0-9]+ start=[0-9]+`nold=$([regex]::Escape($headOld)) end`n$") { throw "The lock doesn't record the old pin: '$seen'" }
+    if ([IO.File]::ReadAllText((Join-Path $logs "new-kit.pin")) -cne [IO.File]::ReadAllText($pin)) { throw "new-kit.pin isn't tests/kit.pin as it was" }
+
+    # A writer puts the old pin in tests/kit.pin around each child run, and
+    # the new pin back before the parent checks it (#123): the new side still
+    # runs the new kit, in tests/run.ps1 and in tests/kit.lua (test_b, the
+    # snapshot), so test_a's line differs and nothing failed.
+    $swapFile = Join-Path $root "swap.pin"
+    [IO.File]::WriteAllText($swapFile, "sha=$k1`n# the pin`nbuild=70532`napi=2`n")   # -Compare <k1>'s old pin
+    $env:FIXTURE_SWAP_PIN = $swapFile
+    try {
+        Invoke-Compare @('-Compare', $k1, '-Snapshot', 'snapshot.lua', '-Lua', $Lua) 1 @(
+            "test_a.lua", "  old: test_a: 3 passed, 0 failed", "  new: test_a: 4 passed, 0 failed",
+            "result lines: 2 of 4 test files identical", "load snapshot: identical"
+        ) @("test_b.lua", "FAILED", "summary") | Out-Null
+    } finally { $env:FIXTURE_SWAP_PIN = $null }
 
     # The issue's form: the old kit sha. Nothing differs.
     Set-Pin $k1
@@ -286,21 +328,41 @@ try {
     $running = "Another -Compare is running in this repo (process $PID): wait for it to finish"
     $before = "is no longer running: it stopped before it changed tests\kit.pin. Then delete"
     $move = "it stopped with its old pin in tests\kit.pin, and "
+    $both = "tests\kit.pin is neither the pin as it was nor the old pin it wrote, so it was edited meanwhile: keep both. Compare tests\kit.pin with "
+    # The lock's record of the old pin it wrote (#123): the pin now, another
+    # pin (a third version is in tests\kit.pin), or one cut short.
+    $record = "old=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($pin))) end`n"
+    $other = "old=$([Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("sha=$k4`n"))) end`n"
+    # Cut before its " end": the record of a longer pin that starts with this
+    # one (90 bytes, a whole number of base64 groups) cut where this one ends.
+    if ([IO.File]::ReadAllBytes($pin).Length % 3) { throw "The pin's length must be a multiple of 3 for the cut record" }
+    $cut = $record.Substring(0, $record.Length - " end`n".Length)
+    $stuck = "Then delete $lockFile and run again."
     foreach ($c in @(
         @{ Lock = $live; Backup = $null;       Has = $running }
-        @{ Lock = $live; Backup = "sha=$k2`n"; Has = $running }   # its old pin is in: wait, don't move
+        @{ Lock = "$live$record"; Backup = "sha=$k2`n"; Has = $running }   # its old pin is in: wait, don't move
         @{ Lock = $dead; Backup = $null;       Has = $before }
         # Naming no process: nothing to check, so no "it stopped", only what to do once sure.
         @{ Lock = "";        Backup = $null;       Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, it stopped before it changed"; Lacks = "is no longer running" }
-        @{ Lock = "garbage"; Backup = "sha=$k2`n"; Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, $move"; Lacks = "is no longer running" }
-        @{ Lock = $dead; Backup = $asIs;       Has = "is no longer running: tests\kit.pin is as it was: delete " }
-        @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $move" }
-        @{ Lock = $null; Backup = "sha=$k2`n"; Has = "is left from an earlier -Compare: $move" }
+        @{ Lock = "garbage`n$record"; Backup = "sha=$k2`n"; Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, $move"; Lacks = "is no longer running" }
+        @{ Lock = "garbage"; Backup = "sha=$k2`n"; Has = "names no process to check. Make sure no -Compare is running in this repo; if none is, $both"; Lacks = "is no longer running" }
+        @{ Lock = "$dead$record"; Backup = $asIs; Has = "is no longer running: tests\kit.pin is as it was: delete " }
+        @{ Lock = "$dead$record"; Backup = "sha=$k2`n"; Has = "is no longer running: $move" }
+        # The pin is a third version, neither the backup nor the old pin the lock records: keep both.
+        @{ Lock = "$dead$other"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
+        @{ Lock = "$dead$cut"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
+        # Stopped before the old pin went in (no record): the pin differs by someone's edit.
+        @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
+        # The lock is gone, and with it the record.
+        @{ Lock = $null; Backup = "sha=$k2`n"; Has = "is left from an earlier -Compare: $both" }
     )) {
         foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
             if ($null -ne $f.Value) { [IO.File]::WriteAllText($f.Key, $f.Value) }
         }
         $lacks = @(if ($c.Has -ceq $running) { "move it over" } else { "wait for it" }) + @($c.Lacks | Where-Object { $_ })
+        if ($c.Has.Contains($both)) { $lacks += "move it over" }
+        if ($c.Has.Contains($move)) { $lacks += "keep both" }
+        if ($c.Has.Contains($both) -and $null -ne $c.Lock) { $c.Has = "$($c.Has)$backupFile, keep in tests\kit.pin the pin you want, then delete $backupFile. $stuck" }
         Invoke-Compare @('-Compare', $k2, '-Lua', $Lua) 2 @($c.Has) $lacks -Leftover | Out-Null
         foreach ($f in @{ $lockFile = $c.Lock; $backupFile = $c.Backup }.GetEnumerator()) {
             $now = if (Test-Path -LiteralPath $f.Key) { [IO.File]::ReadAllText($f.Key) }

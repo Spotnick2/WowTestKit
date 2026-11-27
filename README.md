@@ -69,7 +69,10 @@ pwsh tests/kit.ps1 -Compare <old kit sha>                     # the same pin wit
 pwsh tests/kit.ps1 -Compare main -Snapshot <script.lua> [-Lua <lua.exe>]
 ```
 
-It runs `tests/run.ps1` with the old pin, then with `tests/kit.pin` as it is, and prints only the
+It runs `tests/run.ps1` with the old pin, then with `tests/kit.pin` as it was when it started.
+Each side's pin is fixed in a file of its own in the log folder, which `WOWTESTKIT_PIN` names:
+`Get-WowTestKit`, `tests/kit.lua` and the runner read that file instead of `tests/kit.pin`, so
+a change to `tests/kit.pin` during a side can't make it run another kit. It prints only the
 test files whose result line differs (a file Lua stopped shows its error), the summary if it
 differs, and, with `-Snapshot`, whether the load snapshot ([docs/ADOPTING.md](docs/ADOPTING.md),
 section 1) is identical. A commit of the repo gives its whole `tests/kit.pin` (sha, build and
@@ -83,11 +86,14 @@ open; off Windows that lock is advisory, so only a writer that ignores it and wr
 during the swap can still be overwritten.
 `tests/kit.pin.compare-lock`, created atomically, naming the process that made it, and kept until both
 runs are done, makes a second `-Compare` refuse to start. It says whether the first is still
-running (wait for it) or stopped, and then what to do with what it left. For a lock that names
-no process, you check yourself that no `-Compare` is running. Exit 0 means nothing differs and both runs
+running (wait for it) or stopped, and then what to do with what it left. The lock records the
+old pin before it goes in, and you're told to move the backup over `tests/kit.pin` only while
+`tests/kit.pin` holds that pin. A `tests/kit.pin` that is
+neither that pin nor the backup is someone's edit, so you're told to keep both and compare them.
+For a lock that names no process, you check yourself that no `-Compare` is running. Exit 0 means nothing differs and both runs
 passed. 1 means something differs, a run failed, or a run's results couldn't all be read. 2 means
-it couldn't run. Copy the new `kit.ps1` into
-`tests/` first: it's part of the bump.
+it couldn't run. Copy the new `kit.ps1` and `kit.lua` into
+`tests/` first: they're part of the bump. An older `tests/kit.lua` reads `tests/kit.pin`, not its side's fixed pin.
 
 ## Resets, call hooks, masks and intrinsics
 

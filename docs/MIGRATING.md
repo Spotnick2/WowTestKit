@@ -24,6 +24,11 @@ Changes that need no `api=` change, because a consumer they affect fails loudly,
   `bootstrap/fetch_kit.sh` into `tests/` when bumping the pin. In both, `sha=` must be 40
   lowercase hex, a trailing ` # comment` is dropped, and the last `sha=` line is the one that
   counts. `tests/fetch_kit.sh` now refuses `sha=<40 hex> extra`.
+- **`-Compare` runs each side on a fixed pin (#123).** Copy the new `bootstrap/kit.ps1` and
+  `bootstrap/kit.lua` into `tests/` together. `-Compare` writes each side's pin to a file of its
+  own and names it in `WOWTESTKIT_PIN`, which both read instead of `tests/kit.pin`. An older
+  `tests/kit.lua` still reads `tests/kit.pin`, so a change to it during a run could reach the
+  tests. Nothing changes outside `-Compare`, where `WOWTESTKIT_PIN` isn't set.
 
 ## API 1 → 2
 
