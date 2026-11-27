@@ -41,7 +41,8 @@ try {
     }
 
     # A newer build than the pin's: the workspace rule is to test the newest.
-    $pinBuild = (Get-Content "tests\kit.pin" -ErrorAction SilentlyContinue |
+    $pinFile = if ($env:WOWTESTKIT_PIN) { $env:WOWTESTKIT_PIN } else { "tests\kit.pin" }   # kit.ps1 -Compare's fixed pin
+    $pinBuild = (Get-Content -LiteralPath $pinFile -ErrorAction SilentlyContinue |
         Where-Object { $_ -match '^\s*build\s*=\s*(\d+)' } | ForEach-Object { $Matches[1] } | Select-Object -First 1)
     $newest = Get-ChildItem (Join-Path $KitRoot "data") -Directory -Filter "forever-*" -ErrorAction SilentlyContinue |
         ForEach-Object { [int]($_.Name -replace '^forever-', '') } | Sort-Object | Select-Object -Last 1
