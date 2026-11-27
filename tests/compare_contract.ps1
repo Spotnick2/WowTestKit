@@ -258,7 +258,7 @@ try {
     # are printed (after the last run).
     $hooked = Join-Path $root "edit-hooked.ps1"
     Set-Content -LiteralPath $hooked -Value @(
-        'param($Repo, $Lua, $Compare, $Mode)'
+        'param($Repo, $Lua, $Compare, $Mode, $Seen)'
         '. (Join-Path $Repo "tests/kit.ps1")'
         '$pinFile = Join-Path $Repo "tests/kit.pin"'
         '$realGit = (Get-Command git -CommandType Application | Select-Object -First 1).Source'
@@ -272,6 +272,12 @@ try {
         '    if ($Mode -eq "print" -and "$args" -like "result lines:*") { [IO.File]::WriteAllText($pinFile, "sha=edited meanwhile`n") }'
         '    Microsoft.PowerShell.Utility\Write-Host @args'
         '}'
+        # The lock's text as each switch of the pin finds it, to $Seen (#123).
+        '$realSwitch = ${function:Switch-WowTestKitPin}'
+        'function Switch-WowTestKitPin {'
+        '    [IO.File]::AppendAllText($Seen, [IO.File]::ReadAllText("$pinFile.compare-lock") + "--`n")'
+        '    & $realSwitch @args'
+        '}'
         'exit (Compare-WowTestKit -Compare $Compare -Lua $Lua -RepoRoot $Repo)')
     $edited = "sha=edited meanwhile`n"
     $headPin = "# the pin`nsha=$k1 # pinned kit`nbuild=70532`napi=2`n"   # HEAD's, as -Compare HEAD writes it
@@ -282,14 +288,22 @@ try {
         @{ What = "to the old pin, during the new run"; Pin = $k12; Old = $k1; Edit = $kitOld; Ran = @("-- new pin"); NotRan = @("result lines") }
         # A git restore of the startup pin during the old run: the old run may have read it.
         @{ What = "back to the startup pin, during the old run"; Pin = $k1; Old = $k13; Edit = "# the pin`r`nsha=$k1 # pinned kit`r`nbuild=70532`r`napi=2`r`n"; Ran = @("-- old pin"); NotRan = @("-- new pin", "result lines") }
-        @{ What = "before the old pin goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-edit"; Edit = $edited; Ran = @(); NotRan = @("-- old pin") }
-        @{ What = "to the old pin, before it goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-old"; Edit = $headPin; Ran = @(); NotRan = @("-- old pin") }
-        @{ What = "after the last run"; Pin = $k1; Old = $k4; Mode = "print"; Edit = $edited; Ran = @("-- new pin", "result lines: 4 of 4 test files identical"); NotRan = @() }
+        # Seen: the lock at each switch. A refused switch in finds no record
+        # of the old pin, which was never in; a normal run records it only
+        # after the switch in, and ends it before the switch back (#123).
+        @{ What = "before the old pin goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-edit"; Edit = $edited; Ran = @(); NotRan = @("-- old pin"); Seen = '^pid=\S+ start=\S+\n--\n$' }
+        @{ What = "to the old pin, before it goes in"; Pin = $k2; Old = "HEAD"; Mode = "git-old"; Edit = $headPin; Ran = @(); NotRan = @("-- old pin"); Seen = '^pid=\S+ start=\S+\n--\n$' }
+        @{ What = "after the last run"; Pin = $k1; Old = $k4; Mode = "print"; Edit = $edited; Ran = @("-- new pin", "result lines: 4 of 4 test files identical"); NotRan = @()
+           Seen = '^(pid=\S+ start=\S+\n)--\n\1old=[A-Za-z0-9+/=]+ end\nback\n--\n$' }
     )) {
         Set-Pin $c.Pin
         $was = [IO.File]::ReadAllBytes($pin)
         if ($c.Mode) {
-            $out = (& $pwsh -NoProfile -File $hooked -Repo $repo -Lua $Lua -Compare $c.Old -Mode $c.Mode 2>&1) -join "`n"; $got = $LASTEXITCODE
+            $seenFile = Join-Path $root "switch-locks.txt"
+            if (Test-Path -LiteralPath $seenFile) { Remove-Item -LiteralPath $seenFile }
+            $out = (& $pwsh -NoProfile -File $hooked -Repo $repo -Lua $Lua -Compare $c.Old -Mode $c.Mode -Seen $seenFile 2>&1) -join "`n"; $got = $LASTEXITCODE
+            $seen = if (Test-Path -LiteralPath $seenFile) { [IO.File]::ReadAllText($seenFile) }
+            if ("$seen" -cnotmatch $c.Seen) { throw "an edit $($c.What): the lock at each switch: '$seen'" }
         } else {
             Push-Location $repo
             try { $out = (& $pwsh -NoProfile -File (Join-Path $repo "tests/kit.ps1") -Compare $c.Old -Snapshot snapshot.lua -Lua $Lua 2>&1) -join "`n"; $got = $LASTEXITCODE }
@@ -357,7 +371,7 @@ try {
         # Stopped after the switch back began: the old pin's bytes are now someone's save.
         @{ Lock = "$dead${record}back`n"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
         @{ Lock = "$dead${record}b"; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
-        # Stopped before the old pin went in (no record): the pin differs by someone's edit.
+        # Stopped before the record (the switch refused, or not yet recorded): the pin differs by someone's edit.
         @{ Lock = $dead; Backup = "sha=$k2`n"; Has = "is no longer running: $both" }
         # The lock is gone, and with it the record.
         @{ Lock = $null; Backup = "sha=$k2`n"; Has = "is left from an earlier -Compare: $both" }

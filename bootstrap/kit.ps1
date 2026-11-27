@@ -30,7 +30,7 @@
     saved in the logs, and the comparison stops (exit 2). tests/kit.pin.compare-lock, created atomically before the
     pin is read and removed after both runs, makes a second -Compare refuse
     to start: it says whether the first is still running, or stopped, and
-    then what to do (the lock records the old pin before it goes in, so a
+    then what to do (the lock records the old pin once it is in, so a
     pin that is neither that nor the backup is kept, with the backup, for
     you to compare). tests/kit.pin.compare-backup holds the pin while it is
     changed, and exists only once complete. Each side's full output
@@ -228,7 +228,7 @@ function Compare-WowTestKit {
     # changed: when it exists, it is the complete pin as it was.
     $bytesOf = { param($p) if (Test-Path -LiteralPath $p) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($p)) } }
     # What to do with what an earlier -Compare left. $holder: its lock's text,
-    # whose "old=<base64> end" line records the old pin before it goes in
+    # whose "old=<base64> end" line records the old pin once it is in
     # (#123). Only that pin is the earlier run's to undo: a pin that is
     # neither it nor the backup is someone's edit (made during the run, or
     # before the old pin went in), so both are kept for the user to compare.
@@ -359,22 +359,24 @@ function Compare-WowTestKit {
         # those same bytes), kept, and the comparison stops (#121). The cleanup
         # below says so.
         $oldBytes = [Text.UTF8Encoding]::new($false).GetBytes(($oldLines -join "`n") + "`n")
-        # The lock records the old pin before it goes in, so a stale lock's
-        # advice can tell it from someone's edit (#123). Appended after the
-        # pid= line, which still comes first; a reader may open the lock meanwhile.
-        # Before the switch back, a "back" line ends that phase: from then on
-        # the old pin's bytes in tests/kit.pin are someone's save, not ours.
+        # The lock records the old pin once it is in, so a stale lock's advice
+        # can tell it from someone's edit (#123): not before the switch, which
+        # may refuse a pin someone saved with those same bytes. A stop between
+        # the switch and the record leaves no record, so the advice keeps both.
+        # Appended after the pid= line, which still comes first; a reader may
+        # open the lock meanwhile. Before the switch back, a "back" line ends
+        # that phase: from then on the old pin's bytes are someone's save.
         $appendLock = {
             param([string]$text)
             $bytes = [Text.Encoding]::ASCII.GetBytes($text)
             $s = [IO.File]::Open($lockPath, [IO.FileMode]::Append, [IO.FileAccess]::Write, [IO.FileShare]::Read)
             try { $s.Write($bytes, 0, $bytes.Length); $s.Flush($true) } finally { $s.Dispose() }
         }
-        & $appendLock "old=$(& $b64 $oldBytes) end`n"
         try {
             try {
                 if (-not (Switch-WowTestKitPin $pinPath $newBytes $oldBytes)) { return 2 }
-                $ours = $true
+                $ours = $true   # first: the pin is put back even if the record fails
+                & $appendLock "old=$(& $b64 $oldBytes) end`n"
                 $oldSide = & $runSide "old" $oldBytes
             } finally {
                 # $ours stays set only if the switch back fails. A refused one
